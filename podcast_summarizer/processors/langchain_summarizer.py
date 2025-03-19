@@ -1,288 +1,368 @@
 """
-LangChain-based summarizer for podcast transcriptions.
+LangGraph-based summarizer for podcast transcriptions with FastAPI compatibility.
 """
-from typing import Tuple, Dict, Any, List, Optional
-import re
+from typing import Tuple, Dict, Any, List, Optional, TypedDict, Annotated, Literal
+import operator
+import functools
+import asyncio
+import nest_asyncio
 
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.chains.summarize import load_summarize_chain
+from langchain_core.documents import Document
 from langchain.prompts import PromptTemplate
-from langchain.schema import Document
-from langchain_core.output_parsers import StrOutputParser
-from langchain_core.prompts import ChatPromptTemplate
+from langchain.chains.combine_documents.reduce import split_list_of_docs
+from langgraph.graph import StateGraph, START, END
+from langgraph.constants import Send
 
 from ..core.logging_config import get_logger
 from ..core.llm_provider import get_azure_llm
+from .base_summarizer import BaseSummarizer
+from .prompt_templates import PromptTemplates
+from .text_utils import split_text
 
 logger = get_logger(__name__)
 
-def summarize_with_langchain(
-    transcription: str,
-    custom_prompt: Optional[str] = None,
-    chunk_size: int = 4000,
-    chunk_overlap: int = 500,
-    detail_level: str = "standard",
-    temperature: float = 0.2
-) -> Tuple[str, Dict[str, Any], List[str]]:
-    """
-    Generate a summary using LangChain's map-reduce approach.
+# Apply nest_asyncio to allow nested event loops - needed for FastAPI compatibility
+try:
+    nest_asyncio.apply()
+except Exception as e:
+    logger.warning(f"Failed to apply nest_asyncio: {e}")
+
+# Check if LlamaIndex is available (for dependency reporting only)
+try:
+    import llama_index
+    LLAMAINDEX_AVAILABLE = True
+except ImportError:
+    LLAMAINDEX_AVAILABLE = False
+
+class LangChainSummarizer(BaseSummarizer):
+    """LangGraph-based summarizer implementation with FastAPI compatibility."""
     
-    Args:
-        transcription: Full episode transcription text
-        custom_prompt: Optional custom prompt for summarization
-        chunk_size: Size of text chunks for processing
-        chunk_overlap: Overlap between text chunks
-        detail_level: Level of detail in the summary (brief, standard, detailed)
-        temperature: Temperature for the LLM
+    def __init__(self):
+        super().__init__("langchain")
+    
+    # This is now our main interface - it's async to work in FastAPI
+    async def summarize(
+        self,
+        transcription: str,
+        custom_prompt: Optional[str] = None,
+        chunk_size: int = 4000,
+        chunk_overlap: int = 500,
+        detail_level: str = "standard",
+        temperature: float = 0.2
+    ) -> Tuple[str, Dict[str, Any], List[str]]:
+        """
+        Generate a summary using LangGraph's map-reduce approach.
+        This is an async method designed to work in FastAPI or other async environments.
+        """
+        logger.info(f"Using LangGraph method with detail level: {detail_level}")
         
-    Returns:
-        Tuple containing (summary text, key points dictionary, highlights list)
-    """
-    logger.info(f"Using LangChain method with detail level: {detail_level}")
-    
-    # Get the LLM
-    llm = get_azure_llm(temperature=temperature)
-    
-    # Create text splitter with improved semantic boundary awareness
-    text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=chunk_size,
-        chunk_overlap=chunk_overlap,
-        separators=["\n\n", "\n", ". ", "! ", "? ", ";", ":", " ", ""]
-    )
-    
-    # Split into chunks
-    docs = text_splitter.create_documents([transcription])
-    logger.info(f"Split transcription into {len(docs)} chunks")
-    
-    # Add metadata to the documents
-    for i, doc in enumerate(docs):
-        doc.metadata["chunk_id"] = i + 1
-        doc.metadata["total_chunks"] = len(docs)
-        doc.metadata["is_first"] = i == 0
-        doc.metadata["is_last"] = i == len(docs) - 1
-    
-    # Define prompt templates based on detail level
-    if custom_prompt:
-        map_template = custom_prompt
-        combine_template = custom_prompt
-    else:
-        # Map prompt (for individual chunks)
-        if detail_level == "brief":
-            map_template = """
-            You're summarizing part {chunk_id} of {total_chunks} of a podcast transcript.
-            
-            Write a concise summary of this section, capturing only the essential points.
-            
-            TRANSCRIPT SECTION:
-            {text}
-            
-            CONCISE SECTION SUMMARY:
-            """
-        elif detail_level == "detailed":
-            map_template = """
-            You're summarizing part {chunk_id} of {total_chunks} of a podcast transcript.
-            
-            Write a detailed summary of this section, capturing all significant topics,
-            key points, quotes, insights, and maintaining the conversational flow.
-            
-            TRANSCRIPT SECTION:
-            {text}
-            
-            DETAILED SECTION SUMMARY:
-            """
-        else:  # standard
-            map_template = """
-            You're summarizing part {chunk_id} of {total_chunks} of a podcast transcript.
-            
-            Write a comprehensive summary of this section, capturing the main topics discussed,
-            key points, and maintaining the context of the conversation.
-            
-            TRANSCRIPT SECTION:
-            {text}
-            
-            COMPREHENSIVE SECTION SUMMARY:
-            """
+        # Get the LLM
+        llm = get_azure_llm(temperature=temperature)
         
-        # Combine prompt for merging chunk summaries
-        if detail_level == "brief":
-            combine_template = """
-            Create a concise 3-4 paragraph summary of this podcast by combining these section summaries.
-            Focus on the most important points and maintain a cohesive narrative flow.
-            Eliminate redundancies between sections.
+        # Split into chunks
+        docs = split_text(transcription, chunk_size, chunk_overlap)
+        total_chunks = len(docs)
+        
+        # Add metadata to the documents
+        for i, doc in enumerate(docs):
+            doc.metadata["chunk_id"] = i + 1
+            doc.metadata["total_chunks"] = total_chunks
+            doc.metadata["is_first"] = i == 0
+            doc.metadata["is_last"] = i == len(docs) - 1
+
+        logger.info(f"Split transcription into {len(docs)} chunks")
+        
+        # Configure prompts
+        map_template = PromptTemplates.get_map_prompt(self.name, detail_level, custom_prompt)
+        combine_template = PromptTemplates.get_combine_prompt(self.name, detail_level, custom_prompt)
+        
+        # Define state types for the graph
+        class OverallState(TypedDict):
+            documents: List[Document]
+            summaries: Annotated[list, operator.add]
+            collapsed_summaries: List[Document]
+            final_summary: str
             
-            SECTION SUMMARIES:
-            {text}
+        class SummaryState(TypedDict):
+            document: Document
             
-            FINAL CONCISE SUMMARY:
-            """
-        elif detail_level == "detailed":
-            combine_template = """
-            Create a detailed 6-8 paragraph summary of this podcast by combining these section summaries.
-            Include all significant discussion topics, key insights, and conclusions.
-            Eliminate redundancies and ensure a cohesive overall summary with a clear narrative flow.
+        # Create the summary graph
+        token_max = 4000
+        
+        # Create prompt templates
+        map_prompt = PromptTemplate(
+            template=map_template,
+            input_variables=["text","chunk_id"],
+            partial_variables={"total_chunks": str(total_chunks)}
+        )
+        
+        reduce_prompt = PromptTemplate(
+            input_variables=["text"],
+            template=combine_template
+        )
+        
+        # Generate summary for a single document
+        async def generate_summary(state: SummaryState):
+            doc = state["document"]
+            text = doc.page_content
+            chunk_id = doc.metadata["chunk_id"]
+            prompt = map_prompt.format(text=text, chunk_id=chunk_id)            
+            logger.info(f"Generating summary for chunk {chunk_id}/{total_chunks}")
+            response = await llm.ainvoke(prompt)
+            return {"summaries": [response.content]}
+        
+        # Map documents to summaries
+        def map_summaries(state: OverallState):
+            return [
+                Send("generate_summary", {"document": doc}) 
+                for doc in state["documents"]
+            ]
+        
+        # Collect summaries
+        def collect_summaries(state: OverallState):
+            return {
+                "collapsed_summaries": [Document(page_content=summary) for summary in state["summaries"]]
+            }
+        
+        # Document length function
+        def length_function(documents: List[Document]) -> int:
+            return sum(llm.get_num_tokens(doc.page_content) for doc in documents)
+        
+        # Reduce operation
+        async def _reduce(input_docs: List[Document]) -> str:
+            combined_text = "\n\n".join([doc.page_content for doc in input_docs])
+            prompt = reduce_prompt.format(text=combined_text)
+            response = await llm.ainvoke(prompt)
+            return response.content
+        
+        # Collapse summaries
+        async def collapse_summaries(state: OverallState):
+            doc_lists = split_list_of_docs(
+                state["collapsed_summaries"], length_function, token_max
+            )
+            results = []
+            for doc_list in doc_lists:
+                collapsed_content = await _reduce(doc_list)
+                results.append(Document(page_content=collapsed_content))
             
-            SECTION SUMMARIES:
-            {text}
+            return {"collapsed_summaries": results}
+        
+        # Determine if we need to collapse further
+        def should_collapse(
+            state: OverallState,
+        ) -> Literal["collapse_summaries", "generate_final_summary"]:
+            num_tokens = length_function(state["collapsed_summaries"])
+            if num_tokens > token_max:
+                return "collapse_summaries"
+            else:
+                return "generate_final_summary"
+        
+        # Generate final summary
+        async def generate_final_summary(state: OverallState):
+            response = await _reduce(state["collapsed_summaries"])
+            return {"final_summary": response}
+        
+        # Build the summary graph
+        summary_graph = StateGraph(OverallState)
+        summary_graph.add_node("generate_summary", generate_summary)
+        summary_graph.add_node("collect_summaries", collect_summaries)
+        summary_graph.add_node("collapse_summaries", collapse_summaries)
+        summary_graph.add_node("generate_final_summary", generate_final_summary)
+        
+        summary_graph.add_conditional_edges(START, map_summaries, ["generate_summary"])
+        summary_graph.add_edge("generate_summary", "collect_summaries")
+        summary_graph.add_conditional_edges("collect_summaries", should_collapse)
+        summary_graph.add_conditional_edges("collapse_summaries", should_collapse)
+        summary_graph.add_edge("generate_final_summary", END)
+        
+        summary_app = summary_graph.compile()
+        
+        # Run the summary graph
+        summary_result = await summary_app.ainvoke({
+            "documents": docs,
+            "summaries": [],
+            "collapsed_summaries": [],
+            "final_summary": ""
+        })
+        summary_output = summary_result["final_summary"]
+        
+        # Build the key points graph
+        key_points_map_prompt = PromptTemplate(
+            template=PromptTemplates.get_key_points_map_prompt(self.name),
+            input_variables=["text","chunk_id"],
+            partial_variables={"total_chunks": str(total_chunks)}
+        )
+        
+        key_points_reduce_prompt = PromptTemplate(
+            input_variables=["text","chunk_id"],
+            template=PromptTemplates.get_key_points_combine_prompt(self.name)
+        )
+        
+        async def generate_key_points(state: SummaryState):
+            doc = state["document"]
+            text = doc.page_content
+            chunk_id = doc.metadata["chunk_id"]
+            prompt = key_points_map_prompt.format(text=text, chunk_id=chunk_id)
+            logger.info(f"Generating key points for chunk {chunk_id}/{total_chunks}")
+            response = await llm.ainvoke(prompt)
+            return {"summaries": [response.content]}
+        
+        async def _reduce_key_points(input_docs: List[Document]) -> str:
+            combined_text = "\n\n".join([doc.page_content for doc in input_docs])
+            prompt = key_points_reduce_prompt.format(text=combined_text)
+            response = await llm.ainvoke(prompt)
+            return response.content
+        
+        async def collapse_key_points(state: OverallState):
+            doc_lists = split_list_of_docs(
+                state["collapsed_summaries"], length_function, token_max
+            )
+            results = []
+            for doc_list in doc_lists:
+                collapsed_content = await _reduce_key_points(doc_list)
+                results.append(Document(page_content=collapsed_content))
             
-            FINAL DETAILED SUMMARY:
-            """
-        else:  # standard
-            combine_template = """
-            Create a comprehensive 4-6 paragraph summary of this podcast by combining these section summaries.
-            Capture the main topics discussed, key points, and important conclusions.
-            Maintain a cohesive narrative flow and eliminate redundancies.
+            return {"collapsed_summaries": results}
+        
+        async def generate_final_key_points(state: OverallState):
+            response = await _reduce_key_points(state["collapsed_summaries"])
+            return {"final_summary": response}
+        
+        key_points_graph = StateGraph(OverallState)
+        key_points_graph.add_node("generate_summary", generate_key_points)
+        key_points_graph.add_node("collect_summaries", collect_summaries)
+        key_points_graph.add_node("collapse_summaries", collapse_key_points)
+        key_points_graph.add_node("generate_final_summary", generate_final_key_points)
+        
+        key_points_graph.add_conditional_edges(START, map_summaries, ["generate_summary"])
+        key_points_graph.add_edge("generate_summary", "collect_summaries")
+        key_points_graph.add_conditional_edges("collect_summaries", should_collapse)
+        key_points_graph.add_conditional_edges("collapse_summaries", should_collapse)
+        key_points_graph.add_edge("generate_final_summary", END)
+        
+        key_points_app = key_points_graph.compile()
+        
+        # Run the key points graph
+        key_points_result = await key_points_app.ainvoke({
+            "documents": docs,
+            "summaries": [],
+            "collapsed_summaries": [],
+            "final_summary": ""
+        })
+        key_points_text = key_points_result["final_summary"]
+        key_points = {"points": self.parse_key_points(key_points_text)}
+        
+        # Build the highlights graph
+        highlights_map_prompt = PromptTemplate(
+            template=PromptTemplates.get_highlights_map_prompt(self.name),
+            input_variables=["text","chunk_id"],
+            partial_variables={"total_chunks": str(total_chunks)}
+        )
+        
+        highlights_reduce_prompt = PromptTemplate(
+            input_variables=["text"],
+            template=PromptTemplates.get_highlights_combine_prompt(self.name)
+        )
+        
+        async def generate_highlights(state: SummaryState):
+            doc = state["document"]
+            text = doc.page_content
+            chunk_id = doc.metadata["chunk_id"]
+            prompt = highlights_map_prompt.format(text=text, chunk_id=chunk_id)
+            logger.info(f"Generating highlights for chunk {chunk_id}/{total_chunks}")
+            response = await llm.ainvoke(prompt)
+            return {"summaries": [response.content]}
+        
+        async def _reduce_highlights(input_docs: List[Document]) -> str:
+            combined_text = "\n\n".join([doc.page_content for doc in input_docs])
+            prompt = highlights_reduce_prompt.format(text=combined_text)
+            response = await llm.ainvoke(prompt)
+            return response.content
+        
+        async def collapse_highlights(state: OverallState):
+            doc_lists = split_list_of_docs(
+                state["collapsed_summaries"], length_function, token_max
+            )
+            results = []
+            for doc_list in doc_lists:
+                collapsed_content = await _reduce_highlights(doc_list)
+                results.append(Document(page_content=collapsed_content))
             
-            SECTION SUMMARIES:
-            {text}
-            
-            FINAL COMPREHENSIVE SUMMARY:
-            """
+            return {"collapsed_summaries": results}
+        
+        async def generate_final_highlights(state: OverallState):
+            response = await _reduce_highlights(state["collapsed_summaries"])
+            return {"final_summary": response}
+        
+        highlights_graph = StateGraph(OverallState)
+        highlights_graph.add_node("generate_summary", generate_highlights)
+        highlights_graph.add_node("collect_summaries", collect_summaries)
+        highlights_graph.add_node("collapse_summaries", collapse_highlights)
+        highlights_graph.add_node("generate_final_summary", generate_final_highlights)
+        
+        highlights_graph.add_conditional_edges(START, map_summaries, ["generate_summary"])
+        highlights_graph.add_edge("generate_summary", "collect_summaries")
+        highlights_graph.add_conditional_edges("collect_summaries", should_collapse)
+        highlights_graph.add_conditional_edges("collapse_summaries", should_collapse)
+        highlights_graph.add_edge("generate_final_summary", END)
+        
+        highlights_app = highlights_graph.compile()
+        
+        # Run the highlights graph
+        highlights_result = await highlights_app.ainvoke({
+            "documents": docs,
+            "summaries": [],
+            "collapsed_summaries": [],
+            "final_summary": ""
+        })
+        highlights_text = highlights_result["final_summary"]
+        highlights = self.parse_highlights(highlights_text)
+        
+        return summary_output, key_points, highlights
     
-    # Create map prompt with metadata variables
-    map_prompt = PromptTemplate(
-        input_variables=["text"],
-        partial_variables={
-            "chunk_id": lambda x: x.metadata["chunk_id"], 
-            "total_chunks": lambda x: x.metadata["total_chunks"]
-        },
-        template=map_template
-    )
-    
-    # Create combine prompt
-    combine_prompt = PromptTemplate(
-        input_variables=["text"],
-        template=combine_template
-    )
-    
-    # Create the chain
-    map_reduce_chain = load_summarize_chain(
-        llm,
-        chain_type="map_reduce",
-        map_prompt=map_prompt,
-        combine_prompt=combine_prompt,
-        verbose=True
-    )
-    
-    # Generate summary
-    summary_output = map_reduce_chain.run(docs)
-    
-    # Generate key points
-    key_points_map_template = """
-    You're analyzing part {chunk_id} of {total_chunks} of a podcast transcript.
-    
-    Extract 2-3 key points from this section of the transcript.
-    Focus on important insights, arguments, or conclusions.
-    
-    TRANSCRIPT SECTION:
-    {text}
-    
-    KEY POINTS:
-    """
-    
-    key_points_combine_template = """
-    From these extracted key points, create a consolidated list of 5-7 most important key points from the podcast.
-    Eliminate redundancies and merge similar points.
-    Number each point and provide a brief explanation for each.
-    
-    EXTRACTED POINTS:
-    {text}
-    
-    FINAL KEY POINTS (numbered list):
-    """
-    
-    key_points_map_prompt = PromptTemplate(
-        input_variables=["text"],
-        partial_variables={
-            "chunk_id": lambda x: x.metadata["chunk_id"], 
-            "total_chunks": lambda x: x.metadata["total_chunks"]
-        },
-        template=key_points_map_template
-    )
-    
-    key_points_combine_prompt = PromptTemplate(
-        input_variables=["text"],
-        template=key_points_combine_template
-    )
-    
-    key_points_chain = load_summarize_chain(
-        llm,
-        chain_type="map_reduce",
-        map_prompt=key_points_map_prompt,
-        combine_prompt=key_points_combine_prompt,
-        verbose=True
-    )
-    
-    key_points_text = key_points_chain.run(docs)
-    
-    # Parse key points into a dictionary
-    key_points_dict = {}
-    for line in key_points_text.split('\n'):
-        line = line.strip()
-        if not line:
-            continue
-            
-        # Try to extract numbered points (1. Point text or 1) Point text)
-        match = re.match(r'^(\d+)[\.\)]?\s+(.+)$', line)
-        if match:
-            number, point_text = match.groups()
-            key_points_dict[number] = point_text
-    
-    # If no numbered points were found, create simple entries
-    if not key_points_dict:
-        points_list = [p.strip() for p in key_points_text.split('\n') if p.strip()]
-        for i, point in enumerate(points_list, 1):
-            key_points_dict[str(i)] = point
-    
-    key_points = {"points": key_points_dict}
-    
-    # Generate highlights/memorable quotes
-    highlights_map_template = """
-    You're analyzing part {chunk_id} of {total_chunks} of a podcast transcript.
-    
-    Extract 1-2 memorable quotes or insights from this section that are particularly
-    insightful, thought-provoking, or representative of key moments.
-    
-    TRANSCRIPT SECTION:
-    {text}
-    
-    MEMORABLE QUOTES:
-    """
-    
-    highlights_combine_template = """
-    From these extracted quotes and insights, select the 3-5 most memorable ones
-    that best represent the key insights or moments from the podcast.
-    Prioritize direct quotations when possible.
-    List each quote on a separate line.
-    
-    EXTRACTED QUOTES:
-    {text}
-    
-    FINAL MEMORABLE QUOTES (one per line):
-    """
-    
-    highlights_map_prompt = PromptTemplate(
-        input_variables=["text"],
-        partial_variables={
-            "chunk_id": lambda x: x.metadata["chunk_id"], 
-            "total_chunks": lambda x: x.metadata["total_chunks"]
-        },
-        template=highlights_map_template
-    )
-    
-    highlights_combine_prompt = PromptTemplate(
-        input_variables=["text"],
-        template=highlights_combine_template
-    )
-    
-    highlights_chain = load_summarize_chain(
-        llm,
-        chain_type="map_reduce",
-        map_prompt=highlights_map_prompt,
-        combine_prompt=highlights_combine_prompt,
-        verbose=True
-    )
-    
-    highlights_text = highlights_chain.run(docs)
-    highlights = [h.strip() for h in highlights_text.split('\n') if h.strip()]
-    
-    return summary_output, key_points, highlights
+    # Synchronous interface for backward compatibility
+    # This is now just a wrapper around the async method
+    def summarize_sync(
+        self,
+        transcription: str,
+        custom_prompt: Optional[str] = None,
+        chunk_size: int = 4000,
+        chunk_overlap: int = 500,
+        detail_level: str = "standard",
+        temperature: float = 0.2
+    ) -> Tuple[str, Dict[str, Any], List[str]]:
+        """
+        Synchronous version of summarize for backward compatibility.
+        Uses nest_asyncio to handle execution within an event loop.
+        """
+        try:
+            # Try to get the event loop
+            loop = asyncio.get_event_loop()
+            # Use nest_asyncio to run the async method
+            return loop.run_until_complete(
+                self.summarize(
+                    transcription, 
+                    custom_prompt, 
+                    chunk_size, 
+                    chunk_overlap, 
+                    detail_level, 
+                    temperature
+                )
+            )
+        except RuntimeError as e:
+            logger.warning(f"Event loop error: {e}. Creating new event loop.")
+            # If no event loop exists, create one
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            result = loop.run_until_complete(
+                self.summarize(
+                    transcription, 
+                    custom_prompt, 
+                    chunk_size, 
+                    chunk_overlap, 
+                    detail_level, 
+                    temperature
+                )
+            )
+            loop.close()
+            return result

@@ -14,6 +14,13 @@ load_dotenv()
 # Import the FastAPI app
 from podcast_summarizer.api.main import app
 
+# Try importing utility functions from the refactored codebase
+try:
+    from podcast_summarizer.utils.parsing import parse_episode_indices as api_parse_indices
+    use_api_parser = True
+except ImportError:
+    use_api_parser = False
+
 # Initialize the TestClient
 client = TestClient(app)
 
@@ -25,6 +32,10 @@ def parse_episode_indices(indices_arg):
     - "1-5" -> [1,2,3,4,5]
     - "1,3-5,7" -> [1,3,4,5,7]
     """
+    # Use the API's utility function if available
+    if use_api_parser:
+        return api_parse_indices(indices_arg)
+        
     if not indices_arg:
         return None
     
@@ -45,7 +56,10 @@ def parse_episode_indices(indices_arg):
             # Handle ranges like "5-10"
             try:
                 start, end = map(int, str(part).split('-'))
-                result.extend(range(start, end + 1))  # +1 because range is exclusive at the end
+                if start <= end:  # Validate range is logical
+                    result.extend(range(start, end + 1))
+                else:
+                    print(f"Warning: Invalid range '{part}' (start > end), skipping")
             except ValueError:
                 print(f"Warning: Could not parse range '{part}', skipping")
         else:
@@ -87,51 +101,54 @@ def test_podcast_processing(feed_url=None, limit_episodes=1, episode_indices=Non
     
     # Make request to process podcast
     print(f"Requesting processing of podcast: {feed_url}")
-    response = client.post("/process-podcast", json=payload)
     
-    if response.status_code == 200:
-        result = response.json()
-        job_id = result.get("job_id")
-        print(f"Processing started with job ID: {job_id}")
-        print("Status:", result.get("status"))
+    try:
+        response = client.post("/process-podcast", json=payload)
         
-        # In a real application, you might poll a /job-status endpoint to check progress
-        # For this example, we'll just wait a bit
-        print("Waiting for processing (this may take several minutes for real podcasts)...")
-        print("In a real application, you would poll for status or use webhooks.")
-        
-        return True, job_id
-    else:
-        print(f"Error: {response.status_code}")
-        print(response.text)
+        if response.status_code == 200:
+            result = response.json()
+            job_id = result.get("job_id")
+            print(f"Processing started with job ID: {job_id}")
+            print("Status:", result.get("status"))
+            
+            return True, job_id
+        else:
+            print(f"Error: {response.status_code}")
+            print(response.text)
+            return False, None
+    except Exception as e:
+        print(f"Exception during API call: {str(e)}")
         return False, None
 
 
-def test_episode_summarization(episode_id, custom_prompt=None, chunk_size=4000, chunk_overlap=200):
+def test_episode_summarization(
+    episode_id, 
+    custom_prompt=None, 
+    chunk_size=4000, 
+    chunk_overlap=200,
+    method="auto",
+    detail_level="standard",
+    temperature=0.5,
+    user_id="c4859aa4-50f7-43bd-9ff2-16efed5bf133"  # Default user_id for testing
+):
     """Test summarizing a podcast episode."""
     print("\n=== Testing Episode Summarization API ===")
-    
-    # Use default prompt if none provided
-    if custom_prompt is None:
-        custom_prompt = """
-        Create a comprehensive summary of this podcast episode, focusing on: 
-        1. Main topics and key points
-        2. Any technical concepts explained
-        3. Key takeaways for the audience
-        
-        Format the summary with clear sections and bullet points for readability.
-        """
     
     # Request payload
     payload = {
         "episode_id": episode_id,
         "custom_prompt": custom_prompt,
         "chunk_size": chunk_size,
-        "chunk_overlap": chunk_overlap
+        "chunk_overlap": chunk_overlap,
+        "method": method,
+        "detail_level": detail_level,
+        "temperature": temperature,
+        "user_id": user_id  # Always include user_id in the payload
     }
     
     # Make request to summarize episode
     print(f"Requesting summarization for episode: {episode_id}")
+    print(f"Method: {method}, Detail level: {detail_level}, User ID: {user_id}")
     response = client.post("/summarize-episode", json=payload)
     
     if response.status_code == 200:
@@ -140,6 +157,7 @@ def test_episode_summarization(episode_id, custom_prompt=None, chunk_size=4000, 
         print(f"Episode ID: {result.get('episode_id')}")
         print(f"Summary ID: {result.get('summary_id')}")
         print(f"Status: {result.get('status')}")
+        print(f"Method used: {result.get('method', method)}")
         return True, result.get('summary_id')
     else:
         print(f"Error: {response.status_code}")
@@ -152,16 +170,18 @@ def get_available_episodes(transcribed_only=True):
     print("\n=== Getting Available Episodes ===")
     
     try:
-        response = client.get("/episodes")
+        # Check for specialized endpoint based on filter criteria
+        endpoint = "/episodes/transcribed" if transcribed_only else "/episodes"
+        
+        response = client.get(endpoint)
         
         if response.status_code == 200:
             episodes = response.json()
             
-            if transcribed_only:
-                # Filter for episodes that have been transcribed
+            # If using /episodes endpoint, we may still need to filter
+            if transcribed_only and endpoint == "/episodes":
                 filtered_episodes = [ep["id"] for ep in episodes if ep.get("transcription_status") == "completed"]
             else:
-                # Return all episodes
                 filtered_episodes = [ep["id"] for ep in episodes]
             
             if filtered_episodes:
@@ -176,9 +196,8 @@ def get_available_episodes(transcribed_only=True):
             return []
     except Exception as e:
         print(f"Exception when fetching episodes: {e}")
-        # Fallback to placeholder for testing
         print("Using placeholder episode ID for testing")
-        return ["00000000-0000-0000-0000-000000000000"]  # Replace with real ID when available
+        return ["00000000-0000-0000-0000-000000000000"]
 
 
 def test_upsert_podcast(feed_url=None, description=None, verbose=False):
@@ -291,7 +310,11 @@ def run_tests(args):
                 episode_to_summarize,
                 args.custom_prompt,
                 args.chunk_size,
-                args.chunk_overlap
+                args.chunk_overlap,
+                args.method,
+                args.detail_level,
+                args.temperature,
+                args.user_id
             )
             results['summarize'] = {'success': success, 'summary_id': summary_id}
     
@@ -330,6 +353,10 @@ if __name__ == "__main__":
     parser.add_argument('--custom-prompt', type=str, help='Custom prompt for summarization')
     parser.add_argument('--chunk-size', type=int, default=4000, help='Chunk size for summarization')
     parser.add_argument('--chunk-overlap', type=int, default=200, help='Chunk overlap for summarization')
+    parser.add_argument('--method', type=str, default='auto', help='Summarization method (auto, langchain, llamaindex, spacy, ensemble)')
+    parser.add_argument('--detail-level', type=str, default='standard', help='Detail level (brief, standard, detailed)')
+    parser.add_argument('--temperature', type=float, default=0.5, help='Temperature parameter for LLM')
+    parser.add_argument('--user-id', type=str, help='Optional user ID for tracking summaries')
     
     args = parser.parse_args()
     

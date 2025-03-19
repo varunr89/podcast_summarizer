@@ -2,10 +2,9 @@
 Service for podcast database operations.
 """
 import time
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 
 from ..core.logging_config import get_logger
-from ..core.database import get_db
 
 logger = get_logger(__name__)
 
@@ -26,52 +25,51 @@ def update_existing_podcast(db, existing_podcast: Dict[str, Any], podcast_data: 
     # Podcast exists, update metadata if needed
     podcast_id = existing_podcast["id"]
     podcast_data["id"] = podcast_id
-    needs_update = False
     
     # Check if any fields need updating
-    for key, value in podcast_data.items():
-        if key in existing_podcast and existing_podcast[key] != value:
-            needs_update = True
-            break
+    needs_update = any(existing_podcast.get(key) != value for key, value in podcast_data.items() if key in existing_podcast)
     
     if needs_update:
-        db.upsert_podcast(podcast_data)
+        db.podcast_manager.upsert(podcast_data)
         logger.info(f"Updated podcast metadata for podcast ID: {podcast_id}")
     else:
         logger.info(f"No metadata changes for podcast ID: {podcast_id}")
     
     # Get existing episodes
-    existing_episodes = db.list_episodes(podcast_id)
+    existing_episodes = db.episode_manager.list(podcast_id=podcast_id, limit=1000)
+    logger.debug(f"Found {len(existing_episodes)} existing episodes for podcast {podcast_id}")
+    
     # Track episodes by both audio_url and transcript_url for better identification
-    existing_audio_urls = {ep["audio_url"] for ep in existing_episodes if ep["audio_url"]}
+    existing_audio_urls = {ep["audio_url"] for ep in existing_episodes if ep.get("audio_url")}
     existing_transcript_urls = {ep["transcript_url"] for ep in existing_episodes if ep.get("transcript_url")}
     
     # Add only new episodes
     new_episodes_count = 0
-    # Calculate the starting episode number based on existing episodes
     next_episode_number = len(existing_episodes) + 1
     
     for episode in episodes:
-        # Check if this episode already exists by audio_url or transcript_url
         audio_url = episode.get("audio_url", "")
         transcript_url = episode.get("transcript_url", "")
-        if (audio_url and audio_url not in existing_audio_urls) or \
-           (transcript_url and transcript_url not in existing_transcript_urls):
-            episode["podcast_id"] = podcast_id
-            episode["episode_number"] = next_episode_number  # Add episode number
-            db.upsert_episode(episode)
-            new_episodes_count += 1
-            next_episode_number += 1
+        
+        # Skip episodes that already exist
+        if (audio_url and audio_url in existing_audio_urls) or \
+           (transcript_url and transcript_url in existing_transcript_urls):
+            continue
+            
+        episode["podcast_id"] = podcast_id
+        episode["episode_number"] = next_episode_number
+        db.episode_manager.upsert(episode)
+        new_episodes_count += 1
+        next_episode_number += 1
     
     logger.info(f"Added {new_episodes_count} new episodes to existing podcast ID: {podcast_id}")
     
-    # Set podcast status to active after successful processing
+    # Update podcast status if changes were made
     if new_episodes_count > 0 or needs_update:
         db.client.table("podcasts").update({
             "status": "active", 
             "updated_at": time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
         }).eq("id", podcast_id).execute()
-        logger.info(f"Updated podcast status to active for podcast ID: {podcast_id}")
     
     return {
         "podcast_id": podcast_id,
@@ -81,43 +79,116 @@ def update_existing_podcast(db, existing_podcast: Dict[str, Any], podcast_data: 
         "status": "success"
     }
 
-def create_new_podcast(db, podcast_data: Dict[str, Any], episodes: List[Dict[str, Any]]) -> Dict[str, Any]:
+def create_new_podcast(db, podcast_data, episodes_data):
     """
-    Create a new podcast record with all its episodes.
-    
-    Args:
-        db: Database manager
-        podcast_data: Podcast data to insert
-        episodes: List of episodes to add
-        
-    Returns:
-        Dictionary with creation results
+    Create a new podcast and add its episodes.
     """
-    # Set the initial status to 'processing'
-    podcast_data["status"] = "processing"
-    podcast_id = db.upsert_podcast(podcast_data)
+    # Set status to pending initially
+    podcast_data["status"] = "pending"
     
-    # Insert all episodes
-    episode_count = 0
-    if episodes:
-        for i, episode in enumerate(episodes, 1):
+    # Use podcast_manager instead of direct calls
+    podcast_id = db.podcast_manager.upsert(podcast_data)
+    
+    # Add episodes using episode_manager
+    episodes_added = 0
+    try:
+        for episode in episodes_data:
+            # Set the podcast ID for each episode
             episode["podcast_id"] = podcast_id
-            episode["episode_number"] = i  # Set episode number starting from 1
-            db.upsert_episode(episode)
-            episode_count += 1
+            
+            # Use episode_manager instead of direct calls
+            db.episode_manager.upsert(episode)
+            episodes_added += 1
+        
+        # After all episodes are added successfully, update status to active
+        db.client.table("podcasts").update({
+            "status": "active", 
+            "updated_at": time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
+        }).eq("id", podcast_id).execute()
+        
+        logger.info(f"Podcast ID {podcast_id} status set to active after adding {episodes_added} episodes")
+        
+        return {
+            "podcast_id": podcast_id,
+            "episodes_added": episodes_added,
+            "status": "active"
+        }
+    except Exception as e:
+        logger.error(f"Error adding episodes to podcast {podcast_id}: {str(e)}")
+        # In case of failure, leave status as pending
+        raise
+
+def update_existing_podcast(db, existing_podcast, podcast_data, episodes_data):
+    """
+    Update an existing podcast and add any new episodes.
+    """
+    # Include the ID in podcast data
+    podcast_id = existing_podcast["id"]
+    podcast_data["id"] = podcast_id
     
-    logger.info(f"Successfully created new podcast with ID: {podcast_id} and {episode_count} episodes")
+    # Use podcast_manager instead of direct calls
+    db.podcast_manager.upsert(podcast_data)
     
-    # Update podcast status to 'active' now that all episodes are processed
-    db.client.table("podcasts").update({
-        "status": "active", 
-        "updated_at": time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
-    }).eq("id", podcast_id).execute()
-    logger.info(f"Updated podcast status to active for podcast ID: {podcast_id}")
+    # Get existing episodes for this podcast
+    existing_episodes = db.episode_manager.list(podcast_id=podcast_id)
     
-    return {
-        "podcast_id": podcast_id,
-        "title": podcast_data["title"],
-        "episode_count": episode_count,
-        "status": "success"
-    }
+    # Create a set of existing GUIDs for quick lookup
+    existing_guids = {episode.get("guid") for episode in existing_episodes if episode.get("guid")}
+    
+    # Check existing episodes and add new ones
+    episodes_added = 0
+    try:
+        for episode in episodes_data:
+            # Set the podcast ID for each episode
+            episode["podcast_id"] = podcast_id
+            
+            # Check if episode exists by GUID
+            if episode.get("guid") not in existing_guids:
+                # Use episode_manager to add new episode
+                db.episode_manager.upsert(episode)
+                episodes_added += 1
+        
+        # After all episodes are added successfully, update status to active
+        db.client.table("podcasts").update({
+            "status": "active", 
+            "updated_at": time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
+        }).eq("id", podcast_id).execute()
+        
+        logger.info(f"Podcast ID {podcast_id} status set to active after adding {episodes_added} episodes")
+        
+        return {
+            "podcast_id": podcast_id,
+            "new_episodes_added": episodes_added,
+            "total_episodes": len(existing_episodes) + episodes_added,
+            "status": "active"
+        }
+    except Exception as e:
+        logger.error(f"Error adding episodes to existing podcast {podcast_id}: {str(e)}")
+        raise
+
+def get_episode(db, episode_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Get episode details by ID without full transcript.
+    """
+    try:
+        result = db.client.table("episodes").select("*").eq("id", episode_id).limit(1).execute()
+        return result.data[0] if result.data else None
+    except Exception as e:
+        logger.error(f"Error fetching episode from database: {str(e)}")
+        raise
+
+def list_all_episodes(db, limit: int = 100, offset: int = 0, order_by: str = "published_at") -> List[Dict[str, Any]]:
+    """
+    List all episodes across all podcasts with flexible ordering.
+    """
+    try:
+        result = db.client.table("episodes")\
+                  .select("*")\
+                  .order(order_by, desc=True)\
+                  .range(offset, offset + limit - 1)\
+                  .execute()
+        
+        return result.data
+    except Exception as e:
+        logger.error(f"Error listing episodes from database: {str(e)}")
+        raise

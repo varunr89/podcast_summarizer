@@ -19,7 +19,7 @@ def get_azure_llm(temperature: float = 0.2, deployment_name: str = None):
     logger.info(f"Initializing Azure LLM with model: {model_name}")
     
     return AzureAIChatCompletionsModel(
-        endpoint=settings.DEEPSEEK_ENDPOINT,
+        endpoint=str(settings.DEEPSEEK_ENDPOINT),
         credential=settings.DEEPSEEK_API_KEY,
         model_name=settings.DEEPSEEK_MODEL,
         temperature=temperature

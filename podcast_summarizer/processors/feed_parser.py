@@ -2,6 +2,8 @@
 Functions for parsing podcast RSS feeds.
 """
 import feedparser
+import cloudscraper
+from io import BytesIO
 from datetime import datetime
 from typing import Dict, Any
 
@@ -20,7 +22,9 @@ def parse_podcast_feed(feed_url: str) -> Dict[str, Any]:
         Dictionary with podcast metadata and episodes
     """
     try:
-        feed = feedparser.parse(feed_url)
+        scraper = cloudscraper.create_scraper()
+        content = scraper.get(feed_url).content
+        feed = feedparser.parse(BytesIO(content))
         if not feed.entries:
             raise ValueError("No entries found in feed")
         

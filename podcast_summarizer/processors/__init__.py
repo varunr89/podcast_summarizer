@@ -1,3 +1,10 @@
 """
-Processors module for handling podcast downloading, transcription, and summarization.
+Podcast summarization processors.
 """
+from .base_summarizer import BaseSummarizer
+from .summarization import (
+    summarize,
+    get_available_methods,
+    SummaryResult,
+    AVAILABLE_METHODS
+)
