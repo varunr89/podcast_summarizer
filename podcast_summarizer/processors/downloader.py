@@ -50,7 +50,7 @@ def download_episode(episode: Episode, output_dir: Path) -> Optional[Path]:
     """Download an individual podcast episode."""
     try:
         # Extract episode audio URL and download
-        file_name = f"{episode.title[:30].replace('/', '_')}.audio"
+        file_name = f"{episode.title[:30].replace('/', '_')}.mp3"
         file_path = output_dir / file_name
         
         response = requests.get(episode.url, stream=True)

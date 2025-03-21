@@ -143,7 +143,7 @@ def test_episode_summarization(
         "method": method,
         "detail_level": detail_level,
         "temperature": temperature,
-        "user_id": user_id  # Always include user_id in the payload
+        "user_id": user_id # Always include user_id in the payload
     }
     
     # Make request to summarize episode

@@ -160,6 +160,15 @@ def process_single_episode(episode, podcast_id, temp_dir, storage, db, split_siz
     episode_id = episode.get("id", str(uuid.uuid4()))
     episode["id"] = episode_id
     
+    # Check if this episode is already transcribed
+    try:
+        existing_episode = db.episode_manager.get(episode_id)
+        if existing_episode and existing_episode.get("transcription_status") == "completed":
+            logger.info(f"Episode {episode_id} already has completed transcription. Skipping processing.")
+            return
+    except Exception as e:
+        logger.warning(f"Error checking transcription status: {str(e)}")
+    
     # Define blob names
     podcast_uuid_segment = podcast_id[:8] if podcast_id else "unknown"
     episode_uuid_segment = episode_id[:8]
@@ -227,13 +236,16 @@ def save_transcription(episode, podcast_id, transcription, transcript_blob_name,
     if "published_date" not in episode:
         episode["published_date"] = episode.get("published_at", time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()))
     
+    # Set transcription status to completed
+    episode["transcription_status"] = "completed"
+    
     # Store in database
     try:
         db.transcription_manager.store(episode, transcription)
         logger.info(f"Transcription completed and stored for episode: {episode['title']}")
         
-        # Delete audio if needed
-        if "audio_blob_url" in episode and not keep_audio_files:
+        # Delete audio blob after successful transcription (unless keep_audio_files is true)
+        if not keep_audio_files:
             try:
                 storage.delete_blob(audio_blob_name)
                 logger.info(f"Deleted audio file from storage: {audio_blob_name}")

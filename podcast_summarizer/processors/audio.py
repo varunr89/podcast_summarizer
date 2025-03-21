@@ -69,7 +69,7 @@ def split_audio_file(file_path: str, max_size_mb: float = 25.0) -> List[str]:
         chunk_file = file_path.parent / f"{file_path.stem}_chunk{chunk_index}{file_path.suffix}"
         
         # Export chunk
-        chunk.export(chunk_file, format=file_path.suffix.replace('.', '') or 'mp3')
+        chunk.export(chunk_file, format= 'mp3')
         
         # Verify size and adjust if needed for future chunks
         chunk_size_mb = chunk_file.stat().st_size / (1024 * 1024)
