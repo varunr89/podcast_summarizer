@@ -1,0 +1,37 @@
+# Azure dependencies
+azure-storage-blob
+azure-identity
+
+# Audio processing
+pydub
+
+# OpenAI/Whisper integration
+openai
+
+# API
+fastapi
+uvicorn
+requests
+
+# Utilities
+python-dotenv
+tqdm
+uuid
+
+cloudscraper==1.2.71
+feedparser==6.0.11
+langchain==0.3.21
+langchain_azure_ai==0.1.2
+langchain_community==0.3.20
+langchain_core==0.3.46
+langchain_openai==0.3.9
+langgraph==0.3.18
+llama_index==0.12.25
+nest_asyncio==1.6.0
+numpy
+pydantic==2.10.6
+pydantic_settings==2.8.1
+spacy==3.8.4
+supabase==2.13.0
+torch==2.6.0
+transformers==4.49.0

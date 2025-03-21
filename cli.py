@@ -242,30 +242,8 @@ def test_upsert_podcast(feed_url=None, description=None, verbose=False):
         print(f"Episode count: {result.get('episode_count', result.get('total_episodes'))}")
         print(f"Status: {result.get('status')}")
         
-        # If it's a new podcast, we don't need to update it again
-        if not result.get("new_episodes_added", False):
-            # Second request - should update the existing podcast
-            print("\nUpdating the same podcast (checking for new episodes)")
-            update_payload = {
-                "feed_url": feed_url
-            }
-            
-            update_response = requests.post(f"{API_URL}/upsert-podcast", json=update_payload)
-            
-            if update_response.status_code == 200:
-                update_result = update_response.json()
-                print(f"Update successful for podcast ID: {update_result.get('podcast_id')}")
-                print(f"New episodes added: {update_result.get('new_episodes_added')}")
-                print(f"Total episodes: {update_result.get('total_episodes')}")
-                print(f"Status: {update_result.get('status')}")
-                return True, podcast_id
-            else:
-                print(f"Error updating podcast: {update_response.status_code}")
-                print(update_response.text)
-                return False, None
-        else:
-            # It was already an update operation
-            return True, podcast_id
+        # It was already an update operation
+        return True, podcast_id
     else:
         print(f"Error creating podcast: {response.status_code}")
         print(response.text)
