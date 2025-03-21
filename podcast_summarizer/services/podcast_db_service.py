@@ -118,54 +118,6 @@ def create_new_podcast(db, podcast_data, episodes_data):
         # In case of failure, leave status as pending
         raise
 
-def update_existing_podcast(db, existing_podcast, podcast_data, episodes_data):
-    """
-    Update an existing podcast and add any new episodes.
-    """
-    # Include the ID in podcast data
-    podcast_id = existing_podcast["id"]
-    podcast_data["id"] = podcast_id
-    
-    # Use podcast_manager instead of direct calls
-    db.podcast_manager.upsert(podcast_data)
-    
-    # Get existing episodes for this podcast
-    existing_episodes = db.episode_manager.list(podcast_id=podcast_id)
-    
-    # Create a set of existing GUIDs for quick lookup
-    existing_guids = {episode.get("guid") for episode in existing_episodes if episode.get("guid")}
-    
-    # Check existing episodes and add new ones
-    episodes_added = 0
-    try:
-        for episode in episodes_data:
-            # Set the podcast ID for each episode
-            episode["podcast_id"] = podcast_id
-            
-            # Check if episode exists by GUID
-            if episode.get("guid") not in existing_guids:
-                # Use episode_manager to add new episode
-                db.episode_manager.upsert(episode)
-                episodes_added += 1
-        
-        # After all episodes are added successfully, update status to active
-        db.client.table("podcasts").update({
-            "status": "active", 
-            "updated_at": time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
-        }).eq("id", podcast_id).execute()
-        
-        logger.info(f"Podcast ID {podcast_id} status set to active after adding {episodes_added} episodes")
-        
-        return {
-            "podcast_id": podcast_id,
-            "new_episodes_added": episodes_added,
-            "total_episodes": len(existing_episodes) + episodes_added,
-            "status": "active"
-        }
-    except Exception as e:
-        logger.error(f"Error adding episodes to existing podcast {podcast_id}: {str(e)}")
-        raise
-
 def get_episode(db, episode_id: str) -> Optional[Dict[str, Any]]:
     """
     Get episode details by ID without full transcript.
