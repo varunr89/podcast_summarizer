@@ -4,6 +4,7 @@ azure-identity
 
 # Audio processing
 pydub
+librosa
 
 # OpenAI/Whisper integration
 openai

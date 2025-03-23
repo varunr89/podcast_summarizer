@@ -12,7 +12,7 @@ from ..core.config import get_settings
 from ..core.azure_storage import get_storage
 from .downloader import Episode, download_episode, download_episodes
 from .transcriber import parse_audio_with_azure_openai
-from .audio import split_audio_file
+from .audio import split_audio_file, clean_audio_for_transcription
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -101,9 +101,38 @@ def get_audio_from_source(episode, audio_blob_name, storage, temp_dir):
 def transcribe_audio_file(audio_file_path, split_size_mb):
     """Transcribe audio file and return full transcription."""
     try:
-        # Split audio file into chunks
-        chunks = split_audio_file(audio_file_path, split_size_mb)
+        # Validate input
+        if not audio_file_path or not os.path.exists(audio_file_path):
+            logger.error(f"Invalid audio file path: {audio_file_path}")
+            return None
+            
+        # Check if file appears to be already cleaned (contains "_cleaned" in the filename)
+        file_path = Path(audio_file_path)
+        if "_cleaned" in file_path.stem:
+            logger.info(f"Audio file appears to be already cleaned: {audio_file_path}")
+            cleaned_audio = audio_file_path
+        else:
+            # Clean audio for better transcription
+            logger.info(f"Cleaning audio for transcription: {audio_file_path}")
+            cleaned_audio = clean_audio_for_transcription(audio_file_path)
         
+        if not cleaned_audio:
+            logger.warning("Audio cleaning failed, using original file")
+            cleaned_audio = audio_file_path
+            
+        # Verify the cleaned audio file exists
+        if not os.path.exists(cleaned_audio):
+            logger.warning(f"Cleaned audio file not found, using original: {audio_file_path}")
+            cleaned_audio = audio_file_path
+        
+        # Split audio file into chunks
+        logger.info(f"Splitting audio file: {cleaned_audio}")
+        chunks = split_audio_file(cleaned_audio, split_size_mb)
+        
+        if not chunks:
+            logger.error("Failed to split audio file")
+            return None
+            
         # Process with Whisper
         api_key = settings.WHISPER_API_KEY
         api_version = settings.WHISPER_API_VERSION
@@ -121,9 +150,17 @@ def transcribe_audio_file(audio_file_path, split_size_mb):
             except Exception as e:
                 logger.warning(f"Error cleaning up chunk file {chunk}: {str(e)}")
         
+        # Clean up cleaned audio if it's different from original
+        if cleaned_audio != audio_file_path:
+            try:
+                if os.path.exists(cleaned_audio):
+                    os.remove(cleaned_audio)
+            except Exception as e:
+                logger.warning(f"Error cleaning up processed audio file {cleaned_audio}: {str(e)}")
+        
         return transcription
     except Exception as e:
-        logger.error(f"Error transcribing audio: {str(e)}")
+        logger.error(f"Error transcribing audio: {str(e)}", exc_info=True)
         return None
 
 def cleanup_resources(temp_dir):

@@ -1,11 +1,11 @@
 """
-Audio processing utilities for the podcast summarizer.
+Functions for splitting audio files into smaller chunks.
 """
 from pathlib import Path
 from typing import List
 import math
 
-from ..core.logging_config import get_logger
+from ...core.logging_config import get_logger
 
 logger = get_logger(__name__)
 
@@ -69,7 +69,7 @@ def split_audio_file(file_path: str, max_size_mb: float = 25.0) -> List[str]:
         chunk_file = file_path.parent / f"{file_path.stem}_chunk{chunk_index}{file_path.suffix}"
         
         # Export chunk
-        chunk.export(chunk_file, format= 'mp3')
+        chunk.export(chunk_file, format='mp3')
         
         # Verify size and adjust if needed for future chunks
         chunk_size_mb = chunk_file.stat().st_size / (1024 * 1024)
@@ -87,45 +87,3 @@ def split_audio_file(file_path: str, max_size_mb: float = 25.0) -> List[str]:
     
     logger.info(f"Successfully split {file_path.name} into {len(output_files)} files")
     return output_files
-
-def convert_to_mp3(file_path: str, output_path: str = None) -> str:
-    """
-    Convert audio file to MP3 format if it's not already.
-    
-    Args:
-        file_path: Path to the audio file
-        output_path: Optional path for the output file
-        
-    Returns:
-        Path to the MP3 file
-    """
-    try:
-        from pydub import AudioSegment
-    except ImportError:
-        logger.error("pydub package not found. Install with: pip install pydub")
-        raise
-    
-    file_path = Path(file_path)
-    
-    # If already an MP3, just return the path
-    if file_path.suffix.lower() == '.mp3':
-        return str(file_path)
-    
-    # Determine output path
-    if not output_path:
-        output_path = file_path.with_suffix('.mp3')
-    else:
-        output_path = Path(output_path)
-    
-    logger.info(f"Converting {file_path.name} to MP3")
-    
-    try:
-        # Load audio and export as MP3
-        audio = AudioSegment.from_file(file_path)
-        audio.export(output_path, format='mp3')
-        logger.info(f"Saved MP3 as {output_path}")
-        return str(output_path)
-    except Exception as e:
-        logger.error(f"Error converting to MP3: {str(e)}")
-        # Return original path if conversion fails
-        return str(file_path)

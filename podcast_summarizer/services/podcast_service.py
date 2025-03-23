@@ -18,6 +18,7 @@ from ..processors.episode_processor import (
     get_audio_from_source,
     cleanup_resources
 )
+from ..processors.audio import clean_audio_for_transcription
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -199,11 +200,24 @@ def process_single_episode(episode, podcast_id, temp_dir, storage, db, split_siz
                 logger.error(f"No audio source available for episode: {episode['title']}")
                 return
         
-        # Transcribe audio
-        full_transcription = transcribe_audio_file(audio_file_path, split_size_mb)
+        # Clean audio to remove silence, music, and other non-speech elements
+        logger.info(f"Cleaning audio file to optimize for transcription: {audio_file_path}")
+        cleaned_audio_path = clean_audio_for_transcription(audio_file_path)
+        
+        # Transcribe the cleaned audio
+        full_transcription = transcribe_audio_file(cleaned_audio_path, split_size_mb)
         if not full_transcription:
             logger.error(f"No transcription generated for episode: {episode['title']}")
             return
+        
+        # Clean up the cleaned audio file if it's different from the original
+        if cleaned_audio_path != audio_file_path and os.path.exists(cleaned_audio_path):
+            try:
+                if not settings.CACHE_TEMP_FILES and not keep_audio_files:
+                    os.remove(cleaned_audio_path)
+                    logger.debug(f"Removed temporary cleaned audio file: {cleaned_audio_path}")
+            except Exception as e:
+                logger.warning(f"Failed to remove temporary cleaned audio file: {str(e)}")
     
     # Save results
     save_transcription(episode, podcast_id, full_transcription, transcript_blob_name, 
