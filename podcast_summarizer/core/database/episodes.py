@@ -50,7 +50,7 @@ class EpisodeManager:
             self.logger.error(f"Error upserting episode: {str(e)}")
             raise
     
-    def list(self, podcast_id=None, limit=100, offset=0) -> List[Dict[str, Any]]:
+    def list(self, podcast_id=None, limit=1000, offset=0) -> List[Dict[str, Any]]:
         """
         List episodes for a podcast, or all episodes if podcast_id is None.
         

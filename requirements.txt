@@ -36,3 +36,7 @@ spacy==3.8.4
 supabase==2.13.0
 torch==2.6.0
 transformers==4.49.0
+crawl4ai==0.5.0.post4
+fake_useragent==2.1.0
+wget==3.2
+youtube_dl==2021.12.17

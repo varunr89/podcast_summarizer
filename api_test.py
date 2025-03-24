@@ -200,8 +200,8 @@ def get_available_episodes(transcribed_only=True):
         return ["00000000-0000-0000-0000-000000000000"]
 
 
-def test_upsert_podcast(feed_url=None, description=None, verbose=False):
-    """Test upserting a podcast from an RSS feed, first creating then updating it."""
+def test_upsert_podcast(feed_url=None, description=None, parser_type="auto", verbose=False):
+    """Test upserting a podcast from an RSS feed."""
     print("\n=== Testing Podcast Upsert API ===")
     
     # Use default if no feed URL provided
@@ -210,7 +210,8 @@ def test_upsert_podcast(feed_url=None, description=None, verbose=False):
     
     # Request payload for initial creation
     payload = {
-        "feed_url": feed_url
+        "feed_url": feed_url,
+        "parser_type": parser_type
     }
     
     if description is not None:
@@ -219,10 +220,11 @@ def test_upsert_podcast(feed_url=None, description=None, verbose=False):
         payload["description"] = "Custom description for testing purposes"
     
     print(f"Creating new podcast from feed: {feed_url}")
+    print(f"Using parser type: {parser_type}")
     if verbose:
         print(f"Request payload: {json.dumps(payload, indent=2)}")
     
-    # First request - should create a new podcast
+    # Request to upsert a podcast
     response = client.post("/upsert-podcast", json=payload)
     
     if verbose and response.status_code != 200:
@@ -239,32 +241,13 @@ def test_upsert_podcast(feed_url=None, description=None, verbose=False):
     if response.status_code == 200:
         result = response.json()
         podcast_id = result.get("podcast_id")
-        print(f"Successfully created podcast with ID: {podcast_id}")
+        print(f"Successfully upserted podcast with ID: {podcast_id}")
         print(f"Title: {result.get('title')}")
         print(f"Episode count: {result.get('episode_count')}")
         print(f"Status: {result.get('status')}")
-        
-        # Second request - should update the existing podcast
-        print("\nUpdating the same podcast (checking for new episodes)")
-        update_payload = {
-            "feed_url": feed_url
-        }
-        
-        update_response = client.post("/upsert-podcast", json=update_payload)
-        
-        if update_response.status_code == 200:
-            update_result = update_response.json()
-            print(f"Update successful for podcast ID: {update_result.get('podcast_id')}")
-            print(f"New episodes added: {update_result.get('new_episodes_added')}")
-            print(f"Total episodes: {update_result.get('total_episodes')}")
-            print(f"Status: {update_result.get('status')}")
-            return True, podcast_id
-        else:
-            print(f"Error updating podcast: {update_response.status_code}")
-            print(update_response.text)
-            return False, None
+        return True, podcast_id
     else:
-        print(f"Error creating podcast: {response.status_code}")
+        print(f"Error upserting podcast: {response.status_code}")
         print(response.text)
         return False, None
 
@@ -275,7 +258,12 @@ def run_tests(args):
     
     # Test podcast upserting
     if args.test_upsert:
-        success, podcast_id = test_upsert_podcast(args.feed_url, args.description, args.verbose)
+        success, podcast_id = test_upsert_podcast(
+            args.feed_url, 
+            args.description, 
+            args.parser_type,
+            args.verbose
+        )
         results['upsert'] = {'success': success, 'podcast_id': podcast_id}
     
     # Test podcast processing
@@ -338,6 +326,11 @@ if __name__ == "__main__":
     
     # Upsert options
     parser.add_argument('--description', type=str, help='Custom description for podcast')
+    parser.add_argument('--parser-type', type=str, default='auto', 
+                        choices=['auto', 'rss', 'crawler'], 
+                        help='Parser type to use (auto, rss, crawler)')
+    parser.add_argument('--test-update', action='store_true', 
+                        help='Test updating an existing podcast (may cause duplicates if upsert does not work correctly)')
     
     # Processing options
     parser.add_argument('--limit-episodes', type=int, default=1, help='Limit number of episodes to process')

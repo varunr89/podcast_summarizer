@@ -19,6 +19,12 @@ class SummarizationMethod(str, Enum):
     ENSEMBLE = "ensemble"
     AUTO = "auto"
 
+class ParserType(str, Enum):
+    """Parser type options for podcast feeds"""
+    RSS = "rss"
+    CRAWLER = "crawler"
+    AUTO = "auto"
+
 class PodcastFeedRequest(BaseModel):
     """Request model for podcast processing"""
     feed_url: str
@@ -29,6 +35,7 @@ class PodcastFeedRequest(BaseModel):
     start_episode: Optional[int] = None
     episode_count: Optional[int] = None
     keep_audio_files: bool = False
+    parser_type: ParserType = ParserType.AUTO
 
 class EpisodeSummaryRequest(BaseModel):
     """Request model for episode summary generation"""
@@ -45,3 +52,4 @@ class PodcastUpsertRequest(BaseModel):
     """Request model for podcast upsert operation"""
     feed_url: str
     description: Optional[str] = None
+    parser_type: ParserType = ParserType.AUTO

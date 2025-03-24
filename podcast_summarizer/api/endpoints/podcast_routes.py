@@ -4,7 +4,7 @@ import uuid
 from ..models import PodcastFeedRequest, PodcastUpsertRequest
 from ...services.podcast_service import process_podcast_task
 from ...services.podcast_db_service import update_existing_podcast, create_new_podcast
-from ...processors.feed_parser import parse_podcast_feed
+from ...processors.feed_parser import parse_podcast
 from ..common import logger, handle_api_exception, get_db_instance
 
 router = APIRouter()
@@ -26,7 +26,7 @@ async def process_podcast(request: PodcastFeedRequest, background_tasks: Backgro
         if not existing_podcast or existing_podcast.get("status") != "active":
             logger.info(f"Podcast not found or not active, upserting from feed: {request.feed_url}")
             # Parse the feed to get podcast data
-            feed_data = parse_podcast_feed(request.feed_url)
+            feed_data = parse_podcast(request.feed_url, parser_type=request.parser_type)
             podcast_data = feed_data["podcast"]
             
             # Use the service functions for upserting podcasts
@@ -73,7 +73,7 @@ async def upsert_podcast(request: PodcastUpsertRequest):
     try:
         logger.info(f"Received request to upsert podcast from feed: {request.feed_url}")
         # Parse the feed
-        feed_data = parse_podcast_feed(request.feed_url)
+        feed_data = parse_podcast(request.feed_url, parser_type=request.parser_type)
         podcast_data = feed_data["podcast"]
         # Add custom description if provided
         if request.description:
