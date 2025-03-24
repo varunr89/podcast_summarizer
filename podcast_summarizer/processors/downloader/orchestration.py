@@ -12,7 +12,7 @@ from .download_methods import (
     download_with_headers,
     download_with_wget,
     download_with_youtube_dl,
-    download_with_selenium
+    download_with_playwright
 )
 
 logger = get_logger(__name__)
@@ -27,7 +27,7 @@ def download_episode(episode: Episode, output_dir: Path) -> Optional[Path]:
         download_with_headers,
         download_with_wget,
         download_with_youtube_dl,
-        download_with_selenium
+        download_with_playwright
     ]
     
     for method in methods:

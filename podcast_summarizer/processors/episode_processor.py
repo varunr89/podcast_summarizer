@@ -133,13 +133,24 @@ def transcribe_audio_file(audio_file_path, split_size_mb):
             logger.error("Failed to split audio file")
             return None
             
-        # Process with Whisper
+        # Get settings for transcription
         api_key = settings.WHISPER_API_KEY
         api_version = settings.WHISPER_API_VERSION
         endpoint = str(settings.WHISPER_ENDPOINT)  # Convert HttpUrl to string
         deployment_name = settings.WHISPER_DEPLOYMENT_NAME
         
-        docs = parse_audio_with_azure_openai(chunks, api_key, api_version, endpoint, deployment_name)
+        # Use the new transcribe_audio function that tries local first
+        from .transcriber import transcribe_audio
+        docs = transcribe_audio(
+            chunks,
+            use_local_first=settings.USE_LOCAL_WHISPER_FIRST, 
+            local_model_size=settings.LOCAL_WHISPER_MODEL,
+            azure_api_key=api_key,
+            azure_api_version=api_version,
+            azure_endpoint=endpoint,
+            azure_deployment_name=deployment_name
+        )
+        
         transcription = "\n".join(doc.get("content", "") for doc in docs)
         
         # Clean up chunks

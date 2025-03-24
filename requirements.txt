@@ -7,6 +7,7 @@ pydub
 librosa
 
 # OpenAI/Whisper integration
+openai-whisper
 openai
 
 # API

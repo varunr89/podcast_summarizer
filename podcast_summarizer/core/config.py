@@ -16,6 +16,10 @@ class Settings(BaseSettings):
     WHISPER_DEPLOYMENT_NAME: str
     WHISPER_API_VERSION: str = "2023-09-01-preview"
 
+    # Local Whisper settings
+    USE_LOCAL_WHISPER_FIRST: bool = True
+    LOCAL_WHISPER_MODEL: str = "base.en"  # Options: tiny, base, small, medium, large
+
     # Azure Storage settings
     AZURE_STORAGE_CONNECTION_STRING: str
     AZURE_STORAGE_CONTAINER_NAME: str = "podcast-summarizer"
