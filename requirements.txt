@@ -1,6 +1,7 @@
 # Azure dependencies
 azure-storage-blob
 azure-identity
+azure-communication-email
 
 # Audio processing
 pydub
@@ -19,6 +20,7 @@ requests
 python-dotenv
 tqdm
 uuid
+markdown
 
 cloudscraper==1.2.71
 feedparser==6.0.11

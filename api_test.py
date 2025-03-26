@@ -252,6 +252,48 @@ def test_upsert_podcast(feed_url=None, description=None, parser_type="auto", ver
         return False, None
 
 
+def test_send_user_emails(user_id="c4859aa4-50f7-43bd-9ff2-16efed5bf133"):
+    """Test sending email summaries for a user's followed podcasts."""
+    print("\n=== Testing Send User Emails API ===")
+    
+    print(f"Requesting email summaries for user: {user_id}")
+    response = client.post(f"/send-user-emails/{user_id}")
+    
+    if response.status_code == 200:
+        result = response.json()
+        print("Email sending completed!")
+        print(f"Status: {result.get('status')}")
+        print(f"Message: {result.get('message')}")
+        print(f"Episodes processed: {result.get('episodes_processed')}")
+        return True
+    else:
+        print(f"Error: {response.status_code}")
+        print(response.text)
+        return False
+
+def test_send_episode_summary(user_id="c4859aa4-50f7-43bd-9ff2-16efed5bf133", episode_id=None):
+    """Test sending a summary for a specific episode."""
+    print("\n=== Testing Send Episode Summary API ===")
+    
+    if not episode_id:
+        print("No episode ID provided")
+        return False
+    
+    print(f"Requesting summary email for user: {user_id}, episode: {episode_id}")
+    response = client.post(f"/send-episode-summary/{user_id}/{episode_id}")
+    
+    if response.status_code == 200:
+        result = response.json()
+        print("Email sending completed!")
+        print(f"Status: {result.get('status')}")
+        print(f"Message: {result.get('message')}")
+        print(f"Episode title: {result.get('episode_title')}")
+        return True
+    else:
+        print(f"Error: {response.status_code}")
+        print(response.text)
+        return False
+
 def run_tests(args):
     """Run the specified tests based on command line arguments."""
     results = {}
@@ -259,8 +301,8 @@ def run_tests(args):
     # Test podcast upserting
     if args.test_upsert:
         success, podcast_id = test_upsert_podcast(
-            args.feed_url, 
-            args.description, 
+            args.feed_url,
+            args.description,
             args.parser_type,
             args.verbose
         )
@@ -269,7 +311,7 @@ def run_tests(args):
     # Test podcast processing
     if args.test_process:
         success, job_id = test_podcast_processing(
-            args.feed_url, 
+            args.feed_url,
             args.limit_episodes,
             args.episode_indices,  # Pass the episode indices string or list
             args.split_size_mb,
@@ -306,6 +348,15 @@ def run_tests(args):
             )
             results['summarize'] = {'success': success, 'summary_id': summary_id}
     
+    # Test email functionality if requested
+    if args.test_email:
+        success = test_send_user_emails(args.user_id)
+        results['email'] = {'success': success}
+    
+    if args.test_episode_email and args.episode_id:
+        success = test_send_episode_summary(args.user_id, args.episode_id)
+        results['episode_email'] = {'success': success}
+    
     return results
 
 
@@ -323,6 +374,8 @@ if __name__ == "__main__":
     parser.add_argument('--test-process', action='store_true', help='Test podcast processing API')
     parser.add_argument('--test-episodes', action='store_true', help='Test getting episodes')
     parser.add_argument('--test-summarize', action='store_true', help='Test episode summarization')
+    parser.add_argument('--test-email', action='store_true', help='Test sending email summaries')
+    parser.add_argument('--test-episode-email', action='store_true', help='Test sending specific episode summary')
     
     # Upsert options
     parser.add_argument('--description', type=str, help='Custom description for podcast')
@@ -359,13 +412,18 @@ if __name__ == "__main__":
         args.test_process = True
         args.test_episodes = True
         args.test_summarize = True
+        args.test_email = True
+        args.test_episode_email = True
     
     # If no tests specified, default to running all tests
-    if not (args.test_upsert or args.test_process or args.test_episodes or args.test_summarize):
+    if not (args.test_upsert or args.test_process or args.test_episodes or
+            args.test_summarize or args.test_email or args.test_episode_email):
         args.test_upsert = True
         args.test_process = True
         args.test_episodes = True
         args.test_summarize = True
+        args.test_email = True
+        args.test_episode_email = True
     
     # Run the tests
     results = run_tests(args)

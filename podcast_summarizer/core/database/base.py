@@ -41,6 +41,9 @@ class SupabaseManager:
         self._episode_manager = None
         self._transcription_manager = None
         self._summary_manager = None
+        self._email_preferences_manager = None
+        self._user_follows_manager = None
+        self._user_manager = None
     
     @property
     def podcast_manager(self):
@@ -73,3 +76,27 @@ class SupabaseManager:
             from .summaries import SummaryManager
             self._summary_manager = SummaryManager(self.client, self.logger)
         return self._summary_manager
+    
+    @property
+    def email_preferences_manager(self):
+        """Get an EmailPreferencesManager instance"""
+        if self._email_preferences_manager is None:
+            from .email_preferences import EmailPreferencesManager
+            self._email_preferences_manager = EmailPreferencesManager(self.client, self.logger)
+        return self._email_preferences_manager
+    
+    @property
+    def user_follows_manager(self):
+        """Get a UserFollowsManager instance"""
+        if self._user_follows_manager is None:
+            from .user_follows import UserFollowsManager
+            self._user_follows_manager = UserFollowsManager(self.client, self.logger)
+        return self._user_follows_manager
+    
+    @property
+    def user_manager(self):
+        """Get a UserManager instance"""
+        if self._user_manager is None:
+            from .users import UserManager
+            self._user_manager = UserManager(self.client, self.logger)
+        return self._user_manager
