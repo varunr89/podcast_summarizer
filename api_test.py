@@ -74,11 +74,7 @@ def parse_episode_indices(indices_arg):
 def test_podcast_processing(feed_url=None, limit_episodes=1, episode_indices=None, split_size_mb=25.0, include_transcription=True):
     """Test processing a podcast from RSS feed."""
     print("=== Testing Podcast Processing API ===")
-    
-    # Use default if no feed URL provided
-    if feed_url is None:
-        feed_url = "https://feeds.buzzsprout.com/1459246.rss"
-    
+       
     # Parse episode indices if provided
     if episode_indices:
         parsed_indices = parse_episode_indices(episode_indices)
@@ -203,11 +199,7 @@ def get_available_episodes(transcribed_only=True):
 def test_upsert_podcast(feed_url=None, description=None, parser_type="auto", verbose=False):
     """Test upserting a podcast from an RSS feed."""
     print("\n=== Testing Podcast Upsert API ===")
-    
-    # Use default if no feed URL provided
-    if feed_url is None:
-        feed_url = "https://feeds.buzzsprout.com/1459246.rss"
-    
+      
     # Request payload for initial creation
     payload = {
         "feed_url": feed_url,
