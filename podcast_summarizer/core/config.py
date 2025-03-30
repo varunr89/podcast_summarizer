@@ -40,7 +40,17 @@ class Settings(BaseSettings):
     EMBEDDINGS_MODEL: str
     EMBEDDINGS_API_KEY: str
     EMBEDDINGS_ENDPOINT: HttpUrl
+    DEEPSEEK_API_VERSION: str
+    
+    # Azure Service Bus settings
+    SERVICE_BUS_CONNECTION_STRING: str
+    SERVICE_BUS_QUEUE_NAME: str
 
+    # Azure email settings
+    AZURECONNECTIONSTRING: str
+    SENDER_EMAIL: str
+    RECEIVER_EMAIL: str
+    
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
