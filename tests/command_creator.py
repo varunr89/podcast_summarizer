@@ -18,7 +18,7 @@ import queue
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 # Import the cloud interface
-from src.podcast_summarizer_gui import PodcastSummarizerFrame
+from podcast_summarizer_gui import PodcastSummarizerFrame
 
 # Service Bus endpoint
 SERVICE_BUS_URL = "https://podcast-frontend-api.whitedesert-b2508737.westus.azurecontainerapps.io/api/forward"
