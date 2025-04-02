@@ -74,6 +74,7 @@ class QueueProcessor:
         self.connection_string = connection_string
         self.queue_name = queue_name
         self.dispatcher = MessageDispatcher()
+        self.processing_lock = asyncio.Lock()  # New async lock for sequential processing
         
     async def process_messages(self):
         """Process messages from the queue continuously."""
@@ -85,31 +86,33 @@ class QueueProcessor:
                         try:
                             messages = await receiver.receive_messages(max_message_count=1, max_wait_time=5)
                             for msg in messages:
-                                try:
-                                    # Parse message body
-                                    message_body = json.loads(str(msg))
-                                    logger.info(f"Received message: {message_body}")
-                                    
-                                    if not isinstance(message_body, dict):
-                                        logger.error(f"Invalid message format - expected dict, got {type(message_body)}")
-                                        await receiver.dead_letter_message(msg, reason="Invalid message format")
-                                        continue
-                                        
-                                    # Ensure required fields exist
-                                    if 'routing' not in message_body or 'payload' not in message_body:
-                                        logger.error("Message missing required fields (routing, payload)")
-                                        await receiver.dead_letter_message(msg, reason="Missing required fields")
-                                        continue
-                                        
-                                    # Dispatch message
-                                    await self.dispatcher.dispatch_message(message_body)
-                                    
-                                    # Complete the message
-                                    await receiver.complete_message(msg)
-                                    
-                                except Exception as e:
-                                    logger.error(f"Error processing message: {str(e)}")
-                                    await receiver.dead_letter_message(msg, reason=str(e))
+                                async with self.processing_lock:  # Ensure sequential processing
+                                    async with self.processing_lock:  # Ensure sequential processing
+                                        try:
+                                            # Parse message body
+                                            message_body = json.loads(str(msg))
+                                            logger.info(f"Received message: {message_body}")
+                                            
+                                            if not isinstance(message_body, dict):
+                                                logger.error(f"Invalid message format - expected dict, got {type(message_body)}")
+                                                await receiver.dead_letter_message(msg, reason="Invalid message format")
+                                                continue
+                                                
+                                            # Ensure required fields exist
+                                            if 'routing' not in message_body or 'payload' not in message_body:
+                                                logger.error("Message missing required fields (routing, payload)")
+                                                await receiver.dead_letter_message(msg, reason="Missing required fields")
+                                                continue
+                                                
+                                            # Dispatch message
+                                            await self.dispatcher.dispatch_message(message_body)
+                                            
+                                            # Complete the message
+                                            await receiver.complete_message(msg)
+                                            
+                                        except Exception as e:
+                                            logger.error(f"Error processing message: {str(e)}")
+                                            await receiver.dead_letter_message(msg, reason=str(e))
                                     
                         except Exception as e:
                             logger.error(f"Error receiving messages: {str(e)}")

@@ -7,11 +7,12 @@ from ...services.email_workflow_service import (
 )
 from ...services.email_content_service import format_email_content
 from datetime import datetime
+from ..models import UserEmailRequest, EpisodeEmailRequest
 
 router = APIRouter()
 
-@router.post("/send-user-emails/{user_id}", response_model=Dict[str, Any])
-async def send_user_emails(user_id: str):
+@router.post("/send-user-emails", response_model=Dict[str, Any])
+async def send_user_emails(request: UserEmailRequest):
     """
     Generate and send email summaries for a user's followed podcasts.
     
@@ -21,6 +22,7 @@ async def send_user_emails(user_id: str):
     3. Format and send email
     4. Mark summaries as emailed
     """
+    user_id = request.user_id
     logger.info(f"Starting email summary process for user: {user_id}")
     
     try:
@@ -75,8 +77,8 @@ async def send_user_emails(user_id: str):
     except Exception as e:
         handle_api_exception(e, "processing email summaries")
 
-@router.post("/send-episode-summary/{user_id}/{episode_id}", response_model=Dict[str, Any])
-async def send_episode_summary(user_id: str, episode_id: str):
+@router.post("/send-episode-summary", response_model=Dict[str, Any])
+async def send_episode_summary(request: EpisodeEmailRequest):
     """
     Send a summary of a specific episode to a user.
     
@@ -86,6 +88,8 @@ async def send_episode_summary(user_id: str, episode_id: str):
     3. Format and send email
     4. Mark summary as emailed
     """
+    user_id = request.user_id
+    episode_id = request.episode_id
     logger.info(f"Starting single episode summary process - User: {user_id}, Episode: {episode_id}")
     
     try:

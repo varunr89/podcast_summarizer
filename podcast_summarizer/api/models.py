@@ -53,3 +53,12 @@ class PodcastUpsertRequest(BaseModel):
     feed_url: str
     description: Optional[str] = None
     parser_type: ParserType = ParserType.AUTO
+
+class UserEmailRequest(BaseModel):
+    """Request model for sending user emails"""
+    user_id: str
+
+class EpisodeEmailRequest(BaseModel):
+    """Request model for sending episode summary emails"""
+    user_id: str
+    episode_id: str

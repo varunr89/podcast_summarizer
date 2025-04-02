@@ -248,8 +248,13 @@ def test_send_user_emails(user_id="c4859aa4-50f7-43bd-9ff2-16efed5bf133"):
     """Test sending email summaries for a user's followed podcasts."""
     print("\n=== Testing Send User Emails API ===")
     
+    # Request payload
+    payload = {
+        "user_id": user_id
+    }
+    
     print(f"Requesting email summaries for user: {user_id}")
-    response = client.post(f"/send-user-emails/{user_id}")
+    response = client.post("/send-user-emails", json=payload)
     
     if response.status_code == 200:
         result = response.json()
@@ -271,8 +276,14 @@ def test_send_episode_summary(user_id="c4859aa4-50f7-43bd-9ff2-16efed5bf133", ep
         print("No episode ID provided")
         return False
     
+    # Request payload
+    payload = {
+        "user_id": user_id,
+        "episode_id": episode_id
+    }
+    
     print(f"Requesting summary email for user: {user_id}, episode: {episode_id}")
-    response = client.post(f"/send-episode-summary/{user_id}/{episode_id}")
+    response = client.post("/send-episode-summary", json=payload)
     
     if response.status_code == 200:
         result = response.json()
