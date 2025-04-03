@@ -12,6 +12,28 @@ from azure.mgmt.monitor import MonitorManagementClient
 from azure.identity import DefaultAzureCredential
 from dotenv import load_dotenv
 from pydantic import ValidationError
+from logging.config import dictConfig
+
+# Configure logging
+dictConfig({
+    'version': 1,
+    'formatters': {
+        'default': {
+            'format': '[%(asctime)s] %(levelname)s in %(module)s: %(message)s',
+        }
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'stream': 'ext://sys.stdout',
+            'formatter': 'default'
+        },
+    },
+    'root': {
+        'level': 'INFO',
+        'handlers': ['console']
+    }
+})
 
 from models import (
     PodcastFeedRequest,
@@ -23,8 +45,8 @@ from models import (
 
 # Load environment variables
 load_dotenv()
-
 app = Flask(__name__)
+app.logger.info("Environment variables loaded and Flask app initialized")
 
 # Azure Service Bus connection details
 connection_string = os.getenv('SERVICE_BUS_CONNECTION_STRING')
@@ -44,7 +66,9 @@ required_vars = {
 
 for var_name, var_value in required_vars.items():
     if not var_value:
+        app.logger.error(f"Missing required environment variable: {var_name}")
         raise ValueError(f"{var_name} environment variable is not set")
+app.logger.info("All required environment variables validated successfully")
 
 app.logger.info("Azure Service Bus configuration loaded successfully")
 
@@ -54,6 +78,7 @@ monitor_client = MonitorManagementClient(credential, subscription_id)
 
 async def get_system_metrics():
     """Get system metrics including CPU usage and container count."""
+    app.logger.info("Starting system metrics retrieval")
     try:
         # Get CPU metrics for the app service
         metrics_data = monitor_client.metrics.list(
@@ -74,6 +99,7 @@ async def get_system_metrics():
             elif metric.name.value == 'Replicas' and metric.timeseries:
                 instance_count = metric.timeseries[0].data[-1].average or 1
 
+        app.logger.info(f"Successfully retrieved system metrics - CPU: {cpu_percent}%, Instances: {instance_count}")
         return {
             'cpu_percent': cpu_percent,
             'instance_count': instance_count
@@ -81,6 +107,7 @@ async def get_system_metrics():
     except Exception as e:
         app.logger.error(f"Error getting system metrics: {str(e)}")
         # Fallback to psutil for local development
+        app.logger.info("Falling back to psutil for local metrics")
         return {
             'cpu_percent': psutil.cpu_percent(interval=1),
             'instance_count': 1
@@ -88,10 +115,13 @@ async def get_system_metrics():
 
 async def calculate_delay(metrics, attempt=0):
     """Calculate delay based on system metrics and attempt count."""
+    app.logger.info(f"Calculating delay for attempt {attempt} with metrics - CPU: {metrics['cpu_percent']}%, Instances: {metrics['instance_count']}")
+    
     cpu_percent = metrics['cpu_percent']
     instance_count = metrics['instance_count']
     
     if cpu_percent <= 50:
+        app.logger.info("System load acceptable, no delay needed")
         return 0
     
     # Base delay increases with CPU usage and decreases with instance count
@@ -112,7 +142,9 @@ async def calculate_delay(metrics, attempt=0):
     delay = base_delay * cpu_factor * instance_factor * (2 ** attempt)
     
     # Cap maximum delay at 30 minutes
-    return min(delay, 1800)
+    final_delay = min(delay, 1800)
+    app.logger.info(f"Calculated delay: {final_delay} seconds (CPU factor: {cpu_factor}, Instance factor: {instance_factor})")
+    return final_delay
 
 def send_message_to_queue(message_body, delay_seconds=None):
     """
@@ -152,7 +184,8 @@ def send_message_to_queue(message_body, delay_seconds=None):
 def create_envelope(payload: dict, target_endpoint: str):
     """Creates a message envelope with metadata and routing."""
     correlation_id = str(uuid.uuid4())
-    return {
+    app.logger.info(f"Creating message envelope for target endpoint: {target_endpoint}")
+    envelope = {
         "payload": payload,
         "metadata": {
             "correlationId": correlation_id,
@@ -163,6 +196,7 @@ def create_envelope(payload: dict, target_endpoint: str):
             "targetEndpoint": target_endpoint
         }
     }
+    return envelope
 
 @app.route('/health', methods=['GET'])
 def health_check():
@@ -176,13 +210,16 @@ async def forward_request():
     and forwards them to Azure Service Bus Queue with adaptive delay.
     """
     try:
+        app.logger.info("Received new request at /api/forward endpoint")
         request_data = request.json
         if not request_data:
+            app.logger.error("Missing or invalid JSON in request body")
             return jsonify({"error": "Request body must contain valid JSON"}), 400
 
         # Validate based on target_path
         target_path = request_data.get('target_path')
         if not target_path:
+            app.logger.error("Missing target_path in request")
             return jsonify({"error": "target_path is required"}), 400
 
         try:
@@ -203,7 +240,10 @@ async def forward_request():
                 validated_request = EpisodeEmailRequest(**request_data)
                 target_endpoint = "send-episode-summary"
             else:
+                app.logger.error(f"Invalid target_path received: {target_path}")
                 return jsonify({"error": f"Invalid target_path: {target_path}"}), 400
+
+            app.logger.info(f"Request validated for target endpoint: {target_endpoint}")
 
             # Get system metrics and calculate delay with exponential backoff
             attempt = 0
@@ -230,8 +270,10 @@ async def forward_request():
             
             # Create and send envelope
             validated_data = validated_request.model_dump(exclude_unset=True)
+            app.logger.info("Creating message envelope and sending to queue")
             envelope = create_envelope(validated_data, target_endpoint)
             scheduled_time = send_message_to_queue(envelope, delay_seconds if delay_seconds else None)
+            app.logger.info(f"Message successfully processed with correlation ID: {envelope['metadata']['correlationId']}")
 
             response = {
                 "message": "Request accepted for processing",
@@ -254,16 +296,29 @@ async def forward_request():
 
         except ValidationError as ve:
             app.logger.error(f"Validation error for {target_path}: {str(ve)}")
+            app.logger.error(f"Validation error details: {ve.errors()}")
+            app.logger.error(f"Request data causing validation error: {request_data}")
             return jsonify({
                 "error": "Validation error",
-                "details": ve.errors()
+                "details": ve.errors(),
+                "target_path": target_path,
+                "request_data": request_data
             }), 422
 
     except json.JSONDecodeError:
         return jsonify({"error": "Invalid JSON in request body"}), 400
     except Exception as e:
-        app.logger.error(f"Error processing request: {str(e)}")
-        return jsonify({"error": "Failed to process request"}), 500
+        # Log the full stack trace and context
+        app.logger.exception("Unhandled exception in forward_request:")
+        app.logger.error(f"Error details - Type: {type(e).__name__}, Message: {str(e)}")
+        app.logger.error(f"Request context - Path: {request.path}, Method: {request.method}")
+        if request_data:
+            app.logger.error(f"Request data: {request_data}")
+        return jsonify({
+            "error": "Failed to process request",
+            "error_type": type(e).__name__,
+            "error_details": str(e)
+        }), 500
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8080)
