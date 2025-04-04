@@ -23,6 +23,7 @@ python-dotenv
 tqdm
 uuid
 markdown
+psutil
 
 cloudscraper==1.2.71
 feedparser==6.0.11

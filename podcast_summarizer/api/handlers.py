@@ -2,6 +2,7 @@
 import httpx
 import logging
 from typing import Dict, Any
+import uuid
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +21,9 @@ async def passthrough_handler(payload: Dict[str, Any]):
         ValueError: If target_path is missing or invalid
         httpx.HTTPError: If the HTTP request fails
     """
+    message_id = payload.get("id", str(uuid.uuid4()))
+    logger.critical(f"START handler for message {message_id}")
+
     # Get the target path from the payload
     target_path = payload.get("target_path")
     if not target_path:
@@ -43,6 +47,7 @@ async def passthrough_handler(payload: Dict[str, Any]):
             # Raise an exception for non-success responses
             response.raise_for_status()
             return response.json()
+        logger.critical(f"FINISH handler for message {message_id}")
     except httpx.ConnectError as e:
         logger.error(f"Connection error to {url}: {str(e)}")
         raise

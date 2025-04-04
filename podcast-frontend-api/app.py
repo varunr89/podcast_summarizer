@@ -245,28 +245,37 @@ async def forward_request():
 
             app.logger.info(f"Request validated for target endpoint: {target_endpoint}")
 
-            # Get system metrics and calculate delay with exponential backoff
-            attempt = 0
-            max_attempts = 5  # Maximum number of delay attempts
-            metrics = None
-            delay_seconds = None
+            # Check for FAST_DELIVERY mode
+            fast_delivery = os.getenv("FAST_DELIVERY", "false").lower() in ["true", "1", "yes"]
             
-            while attempt < max_attempts:
-                # Get current system metrics
-                metrics = await get_system_metrics()
-                delay_seconds = await calculate_delay(metrics, attempt)
+            if fast_delivery:
+                app.logger.info("FAST_DELIVERY enabled - bypassing delay calculations")
+                metrics = await get_system_metrics()  # Get metrics for response only
+                delay_seconds = 0
+                attempt = 0
+            else:
+                # Get system metrics and calculate delay with exponential backoff
+                attempt = 0
+                max_attempts = 5  # Maximum number of delay attempts
+                metrics = None
+                delay_seconds = None
                 
-                if delay_seconds == 0:  # System is ready to process
-                    break
+                while attempt < max_attempts:
+                    # Get current system metrics
+                    metrics = await get_system_metrics()
+                    delay_seconds = await calculate_delay(metrics, attempt)
                     
-                app.logger.info(
-                    f"System busy (CPU: {metrics['cpu_percent']}%, Instances: {metrics['instance_count']}). "
-                    f"Attempt {attempt + 1}/{max_attempts}, waiting {delay_seconds} seconds..."
-                )
-                
-                # Wait before checking again
-                await asyncio.sleep(min(60, delay_seconds))  # Check at most every minute
-                attempt += 1
+                    if delay_seconds == 0:  # System is ready to process
+                        break
+                        
+                    app.logger.info(
+                        f"System busy (CPU: {metrics['cpu_percent']}%, Instances: {metrics['instance_count']}). "
+                        f"Attempt {attempt + 1}/{max_attempts}, waiting {delay_seconds} seconds..."
+                    )
+                    
+                    # Wait before checking again with reduced sleep duration
+                    await asyncio.sleep(min(5, delay_seconds))  # Reduced from 60 to 5 seconds max
+                    attempt += 1
             
             # Create and send envelope
             validated_data = validated_request.model_dump(exclude_unset=True)
@@ -283,11 +292,14 @@ async def forward_request():
                 "system_metrics": {
                     "cpu_percent": metrics["cpu_percent"] if metrics else None,
                     "instance_count": metrics["instance_count"] if metrics else None,
-                    "attempt": attempt
+                    "attempt": attempt,
+                    "fast_delivery": fast_delivery
                 }
             }
             
-            if delay_seconds:
+            if fast_delivery:
+                response["message"] = "Request accepted for immediate processing (FAST_DELIVERY enabled)"
+            elif delay_seconds:
                 response["scheduled_time"] = scheduled_time.isoformat()
                 response["delay_seconds"] = delay_seconds
                 response["retry_count"] = attempt

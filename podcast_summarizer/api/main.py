@@ -1,23 +1,21 @@
 """Main FastAPI application module for the podcast summarizer API."""
 import logging
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from .routes import router
 from ..core.config import get_settings
 from .queue_processor import create_queue_processor, initialize_queue_processor
+import logging
 
 # Configure logging
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
-# Create FastAPI app
-app = FastAPI(title="Podcast Processing API")
-
-# Include the API routes
-app.include_router(router)
-
-@app.on_event("startup")
-async def startup_event():
-    """Initialize the application on startup."""
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Handle application startup and shutdown events."""
     try:
+        
         # Load configuration
         settings = get_settings()
         
@@ -32,10 +30,26 @@ async def startup_event():
         processor.dispatcher.register_handler("default", passthrough_handler)
         
         # Start queue processing
-        await initialize_queue_processor(processor)
+        logger.info(f"Initializing queue processor for queue: {settings.SERVICE_BUS_QUEUE_NAME}")
+        processor = await initialize_queue_processor(processor)
         
-        logger.info("Application started successfully")
+        # Store the processor in app state to keep it alive
+        app.state.queue_processor = processor
         
+        logger.info(f"Queue processor initialized and listening to queue: {settings.SERVICE_BUS_QUEUE_NAME}")
+        yield
     except Exception as e:
         logger.error(f"Failed to initialize application: {str(e)}")
         raise
+    finally:
+        # Cleanup phase
+        logger.info("Application is shutting down. Performing cleanup.")
+        if hasattr(app.state, "queue_processor"):
+            await app.state.queue_processor.shutdown()
+            logger.info("Queue processor shutdown completed")
+
+# Create FastAPI app with lifespan handler
+app = FastAPI(title="Podcast Processing API", lifespan=lifespan)
+
+# Include the API routes
+app.include_router(router)
