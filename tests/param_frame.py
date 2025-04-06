@@ -1,6 +1,6 @@
 """
-GUI Parameter Frame Component for Podcast Summarizer Testing.
-Provides a reusable frame containing a checkbox and entry field for parameters.
+Parameter frame component for GUI interfaces.
+Provides a frame with checkbox and entry field for parameter input.
 """
 import tkinter as tk
 from tkinter import ttk
@@ -8,6 +8,14 @@ from tkinter import ttk
 class ParamFrame(ttk.Frame):
     """A frame containing a checkbox and entry field for a parameter."""
     def __init__(self, parent, param_name, label_text, default_value=""):
+        """Initialize the parameter frame.
+        
+        Args:
+            parent: Parent widget
+            param_name: Name of the parameter (used in API calls)
+            label_text: Display text for the checkbox
+            default_value: Optional default value for the entry field
+        """
         super().__init__(parent)
         self.param_name = param_name
         self.enabled = tk.BooleanVar(value=False)
@@ -27,11 +35,19 @@ class ParamFrame(ttk.Frame):
             self.entry.insert(0, default_value)
     
     def set_enabled(self, enabled: bool):
-        """Set the enabled state of the checkbox."""
+        """Set the enabled state of the checkbox.
+        
+        Args:
+            enabled: True to check the box, False to uncheck
+        """
         self.enabled.set(enabled)
             
     def get_value(self):
-        """Get the parameter value if enabled."""
+        """Get the parameter value if enabled.
+        
+        Returns:
+            Tuple of (param_name, value) if enabled and has value, None otherwise
+        """
         if self.enabled.get():
             value = self.entry.get().strip()
             if value:

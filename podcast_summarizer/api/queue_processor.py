@@ -2,12 +2,12 @@
 import json
 import logging
 import asyncio
+import psutil
 from typing import Dict, Any, Callable, Optional
 from azure.servicebus.aio import ServiceBusClient
 from azure.servicebus import ServiceBusMessage
 import uuid
 import time
-import psutil
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -79,27 +79,54 @@ class MessageDispatcher:
 class QueueProcessor:
     """Handles Azure Service Bus queue processing."""
     
-    def __init__(self, connection_string: str, queue_name: str, max_cpu_percent: float = 50.0):
+    def __init__(self, connection_string: str, queue_name: str, polling_interval: int = 60,
+                 max_cpu_percent: float = 50.0, max_mem_percent: float = 50.0):
         self.connection_string = connection_string
         self.queue_name = queue_name
+        self.polling_interval = polling_interval
+        self.max_cpu_percent = max_cpu_percent
+        self.max_mem_percent = max_mem_percent
         self.dispatcher = MessageDispatcher()
-        self.processing_lock = asyncio.Lock()  # This lock ensures sequential processing
+        self.processing_lock = asyncio.Lock()
         self.processing_task = None
         self._running = False
-        self.max_cpu_percent = max_cpu_percent 
 
     async def is_system_ready(self) -> bool:
         """Check if the system is ready to process a new message."""
-        # Get current CPU percentage (across all cores)
-        cpu_percent = psutil.cpu_percent(interval=0.5)
-        ready = cpu_percent < self.max_cpu_percent
+        cpu_percent = psutil.cpu_percent(interval=5)
+        mem_percent = psutil.virtual_memory().percent
         
-        if not ready:
-            logger.warning(f"System CPU usage {cpu_percent}% exceeds threshold {self.max_cpu_percent}%, delaying processing")
-        else:
-            logger.debug(f"System CPU usage {cpu_percent}% is below threshold {self.max_cpu_percent}%, ready to process")
-            
+        ready = cpu_percent < self.max_cpu_percent and mem_percent < self.max_mem_percent
+        
+        logger.critical(
+            f"System status - CPU: {cpu_percent}% (max: {self.max_cpu_percent}%), "
+            f"Memory: {mem_percent}% (max: {self.max_mem_percent}%), "
+            f"Ready: {ready}"
+        )
+        
         return ready
+
+    async def parse_and_validate_message(self, msg: ServiceBusMessage) -> Optional[Dict[str, Any]]:
+        """Parse and validate a message from the queue."""
+        try:
+            message_body = json.loads(str(msg))
+            
+            if not isinstance(message_body, dict):
+                logger.error(f"Invalid message format - expected dict, got {type(message_body)}")
+                return None
+                
+            if 'routing' not in message_body or 'payload' not in message_body:
+                logger.error("Message missing required fields (routing, payload)")
+                return None
+                
+            return message_body
+            
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse message: {str(e)}")
+            return None
+        except Exception as e:
+            logger.error(f"Unexpected error parsing message: {str(e)}")
+            return None
 
     async def process_messages(self):
         """Process messages from the queue continuously."""
@@ -108,59 +135,37 @@ class QueueProcessor:
             async with ServiceBusClient.from_connection_string(self.connection_string) as client:
                 async with client.get_queue_receiver(queue_name=self.queue_name, prefetch=1) as receiver:
                     logger.info(f"Started listening to queue: {self.queue_name}")
+                    
                     while self._running:
-                        # Check system readiness before attempting to receive messages
+                        await asyncio.sleep(self.polling_interval)
+                        
                         if not await self.is_system_ready():
-                            logger.info("System busy, waiting before polling for messages...")
-                            await asyncio.sleep(120)  # Wait a bit longer when system is busy
+                            logger.critical("System busy, waiting before polling for messages...")
+                            await asyncio.sleep(5 * self.polling_interval)
                             continue
 
-                        logger.info("Polling for messages on queue...")
+                        logger.critical("Polling for messages on queue...")
 
                         try:
-                            # Only receive 1 message at a time
-                            logger.info(f"Attempting to receive messages from {self.queue_name}")
                             messages = await receiver.receive_messages(max_message_count=1, max_wait_time=5)
                             logger.info(f"Received {len(messages)} messages from queue")
                             
                             for msg in messages:
-                                # Check system readiness again before processing the message
-                                if not await self.is_system_ready():
-                                    logger.warning("System became busy, releasing message back to queue")
-                                    await receiver.abandon_message(msg)
-                                     # Wait before trying again
-                                    await asyncio.sleep(120)
-                                    break
-                                # Process one message at a time with the lock
                                 async with self.processing_lock:
+                                    message_body = await self.parse_and_validate_message(msg)
+                                    
+                                    if message_body is None:
+                                        await receiver.dead_letter_message(msg, reason="Invalid message format or content")
+                                        continue
+                                        
                                     try:
-                                        # Parse message body
-                                        message_body = json.loads(str(msg))
-                                        logger.info(f"Processing message with routing: {message_body.get('routing', {}).get('targetEndpoint', 'unknown')}")
-                                        
-                                        if not isinstance(message_body, dict):
-                                            logger.error(f"Invalid message format - expected dict, got {type(message_body)}")
-                                            await receiver.dead_letter_message(msg, reason="Invalid message format")
-                                            continue
-                                            
-                                        # Ensure required fields exist
-                                        if 'routing' not in message_body or 'payload' not in message_body:
-                                            logger.error("Message missing required fields (routing, payload)")
-                                            await receiver.dead_letter_message(msg, reason="Missing required fields")
-                                            continue
-                                            
-                                        # Dispatch message
                                         await self.dispatcher.dispatch_message(message_body)
-                                        
-                                        # Complete the message
                                         await receiver.complete_message(msg)
                                         logger.info("Message processed successfully")
-                                        
                                     except Exception as e:
                                         logger.error(f"Error processing message: {str(e)}")
                                         await receiver.dead_letter_message(msg, reason=str(e))
                             
-                            # Add a small delay between polling to reduce CPU usage
                             if not messages:
                                 await asyncio.sleep(1)
                                 
@@ -169,7 +174,7 @@ class QueueProcessor:
                             raise
                         except Exception as e:
                             logger.error(f"Error receiving messages: {str(e)}")
-                            await asyncio.sleep(5)  # Wait before retrying
+                            await asyncio.sleep(5)
                             
         except asyncio.CancelledError:
             logger.info("Queue processor shutting down")
@@ -191,10 +196,18 @@ class QueueProcessor:
                 pass
         logger.info("Queue processor shutdown complete")
 
-# Update the create_queue_processor function to accept the new parameter
-def create_queue_processor(connection_string: str, queue_name: str, max_cpu_percent: float = 50.0) -> QueueProcessor:
-    """Create and initialize a queue processor."""
-    return QueueProcessor(connection_string, queue_name, max_cpu_percent)
+def create_queue_processor(connection_string: str, queue_name: str,
+                         polling_interval: int = 60,
+                         max_cpu_percent: float = 50.0,
+                         max_mem_percent: float = 50.0) -> QueueProcessor:
+    """Create and initialize a queue processor with direct parameter passing."""
+    return QueueProcessor(
+        connection_string=connection_string,
+        queue_name=queue_name,
+        polling_interval=polling_interval,
+        max_cpu_percent=max_cpu_percent,
+        max_mem_percent=max_mem_percent
+    )
 
 async def initialize_queue_processor(processor: QueueProcessor):
     """Initialize the queue processor and start message processing."""

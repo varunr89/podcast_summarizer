@@ -1,25 +1,17 @@
 """
-Podcast Summarizer Testing Package.
-Contains test utilities, GUI tools, and command generation functionality.
+Test utilities package for Podcast Summarizer.
+Contains GUI components and helpers for testing API functionality.
 """
+
 from .param_frame import ParamFrame
-from .service_bus_frame import ServiceBusFrame
-from .command_creator_gui import CommandCreator
-from .command_processor import (
-    build_request_payload,
-    send_request,
-    build_test_command,
-    TARGET_PATH_MAP,
-    SERVICE_BUS_URL
-)
+from .param_validator import ValidationError, convert_and_validate_param, validate_payload
+from .command_processor import build_request_payload, send_request
 
 __all__ = [
     'ParamFrame',
-    'ServiceBusFrame', 
-    'CommandCreator',
+    'ValidationError',
+    'convert_and_validate_param',
+    'validate_payload',
     'build_request_payload',
-    'send_request',
-    'build_test_command',
-    'TARGET_PATH_MAP',
-    'SERVICE_BUS_URL'
+    'send_request'
 ]

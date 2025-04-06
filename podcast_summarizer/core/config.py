@@ -50,6 +50,11 @@ class Settings(BaseSettings):
     AZURECONNECTIONSTRING: str
     SENDER_EMAIL: str
     RECEIVER_EMAIL: str
+
+    #Pollingsettings
+    QUEUE_POLLING_INTERVAL: int = 60 # Polling interval in seconds
+    MAX_CPU_USAGE: float = 50  # Maximum CPU usage percentage for processing
+    MAX_MEM_USAGE: float = 50  # Maximum memory usage percentage for processing
     
     class Config:
         env_file = ".env"

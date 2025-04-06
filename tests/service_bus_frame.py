@@ -8,9 +8,11 @@ import threading
 import queue
 from concurrent.futures import ThreadPoolExecutor
 import json
+from typing import Union, Dict, Any, List
 
 from .param_frame import ParamFrame
 from .command_processor import build_request_payload, send_request
+from .param_validator import ValidationError
 
 class ServiceBusFrame(ttk.Frame):
     """Frame for sending requests through the service bus with parallel processing."""
@@ -197,19 +199,37 @@ class ServiceBusFrame(ttk.Frame):
         """Enqueue a service bus request for parallel processing."""
         self.output.delete(1.0, tk.END)
         
-        # Build the request payload
-        test_type = self.test_type_var.get()
-        params = {}
-        for param in self.params.values():
-            result = param.get_value()
-            if result:
-                name, value = result
-                params[name.replace("-", "_")] = value
-                
-        payload = build_request_payload(test_type, params, self.extra_params.get().strip())
-        if payload is None:
-            return
-        
-        self.output.insert(tk.END, f"Payload:\n{json.dumps(payload, indent=2)}\n\nEnqueuing request...\n")
-        # Enqueue the request to be processed by the worker thread
-        self.task_queue.put((self.perform_request, (payload,)))
+        try:
+            # Build the request payload(s)
+            test_type = self.test_type_var.get()
+            params = {}
+            for param in self.params.values():
+                result = param.get_value()
+                if result:
+                    name, value = result
+                    params[name] = value
+                    
+            result = build_request_payload(test_type, params, self.extra_params.get().strip())
+            if result is None:
+                return
+            
+            # Handle both single payload and list of payloads
+            payloads = result if isinstance(result, list) else [result]
+            
+            # Show payload(s) in output
+            for i, payload in enumerate(payloads):
+                if len(payloads) > 1:
+                    self.output.insert(tk.END, f"\nRequest {i+1} of {len(payloads)}:\n")
+                self.output.insert(tk.END, f"Payload:\n{json.dumps(payload, indent=2)}\n")
+                # Enqueue each request to be processed by the worker thread
+                self.task_queue.put((self.perform_request, (payload,)))
+            
+            if len(payloads) > 1:
+                self.output.insert(tk.END, f"\nEnqueued {len(payloads)} requests...\n")
+            else:
+                self.output.insert(tk.END, "\nEnqueuing request...\n")
+            
+        except ValidationError as e:
+            self.output.insert(tk.END, f"Error: {str(e)}\n")
+        except Exception as e:
+            self.output.insert(tk.END, f"Unexpected error: {str(e)}\n")
