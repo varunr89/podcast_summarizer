@@ -3,6 +3,7 @@ Base database client functionality.
 """
 import os
 from supabase import create_client
+from supabase.lib.client_options import ClientOptions
 from ...core.logging_config import get_logger
 
 # Global database client
@@ -33,7 +34,8 @@ class SupabaseManager:
             raise ValueError("Supabase URL and key must be provided as environment variables")
             
         self.logger.info(f"Initializing Supabase client with URL: {self.url}")
-        self.client = create_client(self.url, self.key)
+        clientOptions = ClientOptions(postgrest_client_timeout=30)
+        self.client = create_client(self.url, self.key,clientOptions)
         self.logger.info(f"Supabase client initialized successfully")
         
         # Initialize instance variables for managers

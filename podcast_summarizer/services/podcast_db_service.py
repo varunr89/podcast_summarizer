@@ -57,7 +57,6 @@ def update_existing_podcast(db, existing_podcast: Dict[str, Any], podcast_data: 
             continue
             
         episode["podcast_id"] = podcast_id
-        episode["episode_number"] = next_episode_number
         db.episode_manager.upsert(episode)
         new_episodes_count += 1
         next_episode_number += 1
