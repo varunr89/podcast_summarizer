@@ -2,6 +2,11 @@ from typing import List, Dict, Any, Tuple
 from ..api.common import logger
 from ..api.models import EpisodeSummaryRequest
 from .summarizer_service import generate_episode_summary
+from .podcast_service import process_single_episode
+from ..core.azure_storage import get_storage
+from ..core.config import get_settings
+import os
+from pathlib import Path
 
 def prepare_episodes_to_email(db, user_id: str, max_episodes: int, detail_level: str) -> Tuple[List[Dict], List[Tuple]]:
     """
@@ -178,10 +183,36 @@ def build_single_episode_summary(db, user_id: str, episode_id: str, detail_level
             'highlights': existing_summary.get('highlights', [])
         }
     
-    # Generate new summary
+    # Check for transcript
     transcription = db.transcription_manager.get(episode_id)
     if not transcription:
-        raise ValueError(f"Transcript not found for episode: {episode_id}")
+        logger.info(f"No transcript found for episode {episode_id}, attempting to process it")
+        try:
+            # Create temp directory
+            settings = get_settings()
+            temp_dir = Path(settings.TEMP_DIR) / f"summary_{episode_id[:8]}"
+            os.makedirs(temp_dir, exist_ok=True)
+            
+            # Process the episode
+            storage = get_storage()
+            process_single_episode(
+                episode=episode,
+                podcast_id=episode.get('podcast_id'),
+                temp_dir=temp_dir,
+                storage=storage,
+                db=db,
+                split_size_mb=10.0,  # Default split size in MB
+                keep_audio_files=False
+            )
+            
+            # Get the newly created transcript
+            transcription = db.transcription_manager.get(episode_id)
+            if not transcription:
+                raise ValueError("Episode processing completed but transcript not found")
+                
+        except Exception as e:
+            logger.error(f"Failed to process episode: {str(e)}")
+            raise ValueError(f"Episode processing failed: {str(e)}")
     
     logger.debug("Generating new summary")
     summary_request = EpisodeSummaryRequest(

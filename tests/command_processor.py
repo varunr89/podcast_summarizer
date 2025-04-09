@@ -34,6 +34,9 @@ def build_request_payload(test_type: str, params: Dict[str, str], extra_params: 
             else:  # episode_email
                 eid = params.get("episode_id", "").strip()
                 target_path = f"/send-episode-summary/{uid}/{eid}"
+            
+            # Normalize the path by removing trailing slashes
+            target_path = target_path.rstrip('/')
         
         payload = {"target_path": target_path}
         
@@ -46,7 +49,7 @@ def build_request_payload(test_type: str, params: Dict[str, str], extra_params: 
             # Convert parameter name format
             api_name = name.replace("-", "_")
             
-            # Convert and validate the parameter
+            # Convert and validate the parameter 
             converted_value = convert_and_validate_param(api_name, value, test_type)
             if converted_value is not None:
                 payload[api_name] = converted_value
