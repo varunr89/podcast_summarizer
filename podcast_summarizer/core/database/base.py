@@ -34,7 +34,7 @@ class SupabaseManager:
             raise ValueError("Supabase URL and key must be provided as environment variables")
             
         self.logger.info(f"Initializing Supabase client with URL: {self.url}")
-        clientOptions = ClientOptions(postgrest_client_timeout=30)
+        clientOptions = ClientOptions(postgrest_client_timeout=10)
         self.client = create_client(self.url, self.key,clientOptions)
         self.logger.info(f"Supabase client initialized successfully")
         
