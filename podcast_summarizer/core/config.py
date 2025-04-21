@@ -18,7 +18,7 @@ class Settings(BaseSettings):
 
     # Local Whisper settings
     USE_LOCAL_WHISPER_FIRST: bool = True
-    LOCAL_WHISPER_MODEL: str = "base.en"  # Options: tiny, base, small, medium, large
+    LOCAL_WHISPER_MODEL: str = "tiny.en"  # Options: tiny, base, small, medium, large
 
     # Azure Storage settings
     AZURE_STORAGE_CONNECTION_STRING: str

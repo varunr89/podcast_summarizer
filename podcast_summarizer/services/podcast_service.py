@@ -50,8 +50,8 @@ def process_podcast_task(request: PodcastFeedRequest, job_id: str):
                 temp_dir, 
                 storage, 
                 db, 
-                request.split_size_mb, 
-                request.keep_audio_files
+                split_size_mb=100,  # Example split size
+                keep_audio_files=False
             )
             
         logger.info(f"Job {job_id} completed: processed {len(episode_data)} episodes.")

@@ -106,10 +106,14 @@ class LangChainSummarizer(BaseSummarizer):
             doc = state["document"]
             text = doc.page_content
             chunk_id = doc.metadata["chunk_id"]
-            prompt = map_prompt.format(text=text, chunk_id=chunk_id)            
+            prompt = map_prompt.format(text=text, chunk_id=chunk_id)
             logger.info(f"Generating summary for chunk {chunk_id}/{total_chunks}")
-            response = await llm.ainvoke(prompt)
-            return {"summaries": [response.content]}
+            try:
+                response = await llm.ainvoke(prompt)
+                return {"summaries": [response.content]}
+            except Exception as e:
+                logger.error(f"Failed to generate summary for chunk {chunk_id}: {e}")
+                return {"summaries": []}
         
         # Map documents to summaries
         def map_summaries(state: OverallState):
@@ -204,8 +208,12 @@ class LangChainSummarizer(BaseSummarizer):
             chunk_id = doc.metadata["chunk_id"]
             prompt = key_points_map_prompt.format(text=text, chunk_id=chunk_id)
             logger.info(f"Generating key points for chunk {chunk_id}/{total_chunks}")
-            response = await llm.ainvoke(prompt)
-            return {"summaries": [response.content]}
+            try:
+                response = await llm.ainvoke(prompt)
+                return {"summaries": [response.content]}
+            except Exception as e:
+                logger.error(f"Failed to generate key points for chunk {chunk_id}: {e}")
+                return {"summaries": []}
         
         async def _reduce_key_points(input_docs: List[Document]) -> str:
             combined_text = "\n\n".join([doc.page_content for doc in input_docs])
@@ -270,8 +278,12 @@ class LangChainSummarizer(BaseSummarizer):
             chunk_id = doc.metadata["chunk_id"]
             prompt = highlights_map_prompt.format(text=text, chunk_id=chunk_id)
             logger.info(f"Generating highlights for chunk {chunk_id}/{total_chunks}")
-            response = await llm.ainvoke(prompt)
-            return {"summaries": [response.content]}
+            try:
+                response = await llm.ainvoke(prompt)
+                return {"summaries": [response.content]}
+            except Exception as e:
+                logger.error(f"Failed to generate highlights for chunk {chunk_id}: {e}")
+                return {"summaries": []}
         
         async def _reduce_highlights(input_docs: List[Document]) -> str:
             combined_text = "\n\n".join([doc.page_content for doc in input_docs])

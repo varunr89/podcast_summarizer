@@ -100,13 +100,19 @@ class PromptTemplates:
         return """
         You're analyzing part {chunk_id} of {total_chunks} of a podcast transcript.
         
-        Extract 2-3 key points from this section of the transcript.
+        Extract 2-3 key points from this section of the transcript along with brief explanation for each key point.
         Focus on important insights, arguments, or conclusions.
-        
+                
         TRANSCRIPT SECTION:
         {text}
         
         KEY POINTS:
+         e.g. "1": "**AI \"Reasoning\" and Its Evolution**: AI models are advancing in their 
+        ability to \"reason\" through tasks using techniques like chain-of-thought prompting, which 
+        involves generating step-by-step explanations to improve accuracy and logical consistency. 
+        However, this process is often misunderstood and oversimplified in mainstream explanations, 
+        requiring a deeper understanding of the underlying technologies and architectures.", 
+
         """
     
     @staticmethod
@@ -115,12 +121,19 @@ class PromptTemplates:
         return """
         From these extracted key points, create a consolidated list of 5-7 most important key points from the podcast.
         Eliminate redundancies and merge similar points.
-        Number each point and provide a brief explanation for each.
+        Number each point and **always** provide a brief explanation for each.
         
         EXTRACTED POINTS:
         {text}
         
         FINAL KEY POINTS (numbered list):
+         e.g. "1": "**AI \"Reasoning\" and Its Evolution**: AI models are advancing in their 
+        ability to \"reason\" through tasks using techniques like chain-of-thought prompting, which 
+        involves generating step-by-step explanations to improve accuracy and logical consistency. 
+        However, this process is often misunderstood and oversimplified in mainstream explanations, 
+        requiring a deeper understanding of the underlying technologies and architectures."
+        e.g. "2": "**Another Key Point**: Description of another important insight or conclusion from the podcast.
+        e.g. "3": "**Yet Another Key Point**: Further explanation of a significant topic discussed in the podcast.
         """
     
     @staticmethod

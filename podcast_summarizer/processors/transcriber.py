@@ -18,6 +18,70 @@ except ImportError:
     logger.warning("Local Whisper not available. Install with 'pip install openai-whisper'")
     WHISPER_AVAILABLE = False
 
+# Add imports for faster-whisper
+try:
+    from faster_whisper import WhisperModel
+    import multiprocessing
+    FASTER_WHISPER_AVAILABLE = True
+except ImportError:
+    logger.warning("Faster-Whisper not available. Install with 'pip install faster-whisper'")
+    FASTER_WHISPER_AVAILABLE = False
+
+def parse_audio_with_faster_whisper(
+    audio_files: List[str],
+    beam_size: int = 1,
+    model_size: str = "tiny.en"
+) -> List[Dict[str, Any]]:
+    """
+    Transcribe audio files using faster-whisper (tiny.en, int8 quant, CPU).
+    Args:
+        audio_files: List of paths to audio files
+        beam_size: Beam size for decoding (default 1)
+        model_size: Model size (default "tiny.en")
+    Returns:
+        List of document dictionaries containing transcriptions
+    """
+    if not FASTER_WHISPER_AVAILABLE:
+        logger.error("Faster-Whisper package not available")
+        return []
+
+    documents = []
+    num_threads = multiprocessing.cpu_count()
+    try:
+        logger.info(f"Loading Faster-Whisper model '{model_size}' (int8, CPU, threads={num_threads})")
+        model = WhisperModel(model_size, device="cpu", compute_type="int8", cpu_threads=num_threads)
+        for audio_file in audio_files:
+            if not os.path.exists(audio_file):
+                logger.error(f"Audio file does not exist: {audio_file}")
+                continue
+            logger.info(f"Starting Faster-Whisper transcription for {audio_file}")
+            try:
+                segments, info = model.transcribe(audio_file, beam_size=beam_size)
+                chunk_text = []
+                total_tokens = 0
+                for segment in segments:
+                    chunk_text.append(segment.text)
+                    total_tokens += len(segment.tokens)
+                text = " ".join(chunk_text)
+                doc_dict = {
+                    "content": text,
+                    "metadata": {
+                        "source": audio_file,
+                        "model": f"faster-whisper-{model_size}",
+                        "beam_size": beam_size,
+                        "tokens": total_tokens
+                    },
+                    "source": audio_file
+                }
+                documents.append(doc_dict)
+                logger.info(f"Successfully transcribed {audio_file} with Faster-Whisper ({len(text)} chars, {total_tokens} tokens)")
+            except Exception as e:
+                logger.error(f"Error transcribing {audio_file} with Faster-Whisper: {str(e)}", exc_info=True)
+    except Exception as e:
+        logger.error(f"Error initializing Faster-Whisper: {str(e)}", exc_info=True)
+
+    return documents
+
 def parse_audio_with_local_whisper(
     audio_files: List[str],
     model_size: str = "base.en"
@@ -139,11 +203,11 @@ def transcribe_audio(
     azure_deployment_name: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """
-    Transcribe audio files using either local Whisper (if available) or Azure OpenAI.
+    Transcribe audio files using either Faster-Whisper (if available), local Whisper, or Azure OpenAI.
     
     Args:
         audio_files: List of paths to audio files
-        use_local_first: Try local Whisper first before using Azure
+        use_local_first: Try local models first before using Azure
         local_model_size: Size of Whisper model to use ('tiny', 'base', 'small', 'medium', 'large')
         azure_api_key: Azure OpenAI API key
         azure_api_version: Azure OpenAI API version
@@ -153,13 +217,21 @@ def transcribe_audio(
     Returns:
         List of document dictionaries containing transcriptions
     """
-    # Try local Whisper first if requested and available
+    # Try Faster-Whisper first if requested and available
+    if use_local_first and FASTER_WHISPER_AVAILABLE:
+        logger.info("Attempting transcription with Faster-Whisper")
+        documents = parse_audio_with_faster_whisper(audio_files, beam_size=1, model_size="tiny.en")
+        if documents:
+            return documents
+        logger.warning("Faster-Whisper transcription failed or returned no results, falling back to local Whisper")
+
+    # Fallback to local Whisper if available
     if use_local_first and WHISPER_AVAILABLE:
         logger.info("Attempting transcription with local Whisper")
         documents = parse_audio_with_local_whisper(audio_files, local_model_size)
         if documents:
             return documents
-        logger.warning("Local transcription failed or returned no results, falling back to Azure")
+        logger.warning("Local Whisper transcription failed or returned no results, falling back to Azure")
     
     # Fall back to Azure OpenAI if local failed or wasn't requested
     if all([azure_api_key, azure_api_version, azure_endpoint, azure_deployment_name]):
@@ -172,8 +244,8 @@ def transcribe_audio(
             azure_deployment_name
         )
     else:
-        if not use_local_first or not WHISPER_AVAILABLE:
-            logger.error("Transcription failed: Local Whisper unavailable and Azure credentials missing")
+        if not use_local_first or (not FASTER_WHISPER_AVAILABLE and not WHISPER_AVAILABLE):
+            logger.error("Transcription failed: No local models available and Azure credentials missing")
         else:
             logger.error("Transcription failed: Azure credentials missing for fallback")
         return []
