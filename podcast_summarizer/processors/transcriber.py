@@ -20,7 +20,7 @@ except ImportError:
 
 # Add imports for faster-whisper
 try:
-    from faster_whisper import WhisperModel
+    from faster_whisper import WhisperModel, BatchedInferencePipeline
     import multiprocessing
     FASTER_WHISPER_AVAILABLE = True
 except ImportError:
@@ -30,14 +30,16 @@ except ImportError:
 def parse_audio_with_faster_whisper(
     audio_files: List[str],
     beam_size: int = 1,
-    model_size: str = "tiny.en"
+    model_size: str = "tiny.en",
+    batch_size: int = 8
 ) -> List[Dict[str, Any]]:
     """
-    Transcribe audio files using faster-whisper (tiny.en, int8 quant, CPU).
+    Transcribe audio files using faster-whisper (tiny.en, int8 quant, CPU) with batching.
     Args:
         audio_files: List of paths to audio files
         beam_size: Beam size for decoding (default 1)
         model_size: Model size (default "tiny.en")
+        batch_size: Batch size for BatchedInferencePipeline (default 8)
     Returns:
         List of document dictionaries containing transcriptions
     """
@@ -50,13 +52,14 @@ def parse_audio_with_faster_whisper(
     try:
         logger.info(f"Loading Faster-Whisper model '{model_size}' (int8, CPU, threads={num_threads})")
         model = WhisperModel(model_size, device="cpu", compute_type="int8", cpu_threads=num_threads)
+        pipeline = BatchedInferencePipeline(model=model)
         for audio_file in audio_files:
             if not os.path.exists(audio_file):
                 logger.error(f"Audio file does not exist: {audio_file}")
                 continue
-            logger.info(f"Starting Faster-Whisper transcription for {audio_file}")
+            logger.info(f"Starting Faster-Whisper transcription for {audio_file} (batch_size={batch_size})")
             try:
-                segments, info = model.transcribe(audio_file, beam_size=beam_size)
+                segments, info = pipeline.transcribe(audio_file, beam_size=beam_size, batch_size=batch_size)
                 chunk_text = []
                 total_tokens = 0
                 for segment in segments:
@@ -69,12 +72,13 @@ def parse_audio_with_faster_whisper(
                         "source": audio_file,
                         "model": f"faster-whisper-{model_size}",
                         "beam_size": beam_size,
+                        "batch_size": batch_size,
                         "tokens": total_tokens
                     },
                     "source": audio_file
                 }
                 documents.append(doc_dict)
-                logger.info(f"Successfully transcribed {audio_file} with Faster-Whisper ({len(text)} chars, {total_tokens} tokens)")
+                logger.info(f"Successfully transcribed {audio_file} with Faster-Whisper ({len(text)} chars, {total_tokens} tokens, batch_size={batch_size})")
             except Exception as e:
                 logger.error(f"Error transcribing {audio_file} with Faster-Whisper: {str(e)}", exc_info=True)
     except Exception as e:
