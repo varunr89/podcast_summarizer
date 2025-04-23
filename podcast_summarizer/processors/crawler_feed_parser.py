@@ -115,12 +115,19 @@ async def parse_podcast_site_async(url: str) -> Dict[str, Any]:
             # Extract episodes data
             episodes = []
             for episode in data[0].get("episodes", []):
+                # Get title or use first 25 chars of episode notes if missing
+                title = episode.get("title", "")
+                if not title:
+                  notes = episode.get("episode_notes", "")
+                  title = (notes[:25] + "...") if len(notes) > 25 else notes
+                  title = title or "Unknown Episode"  # Fallback if notes are also empty
+                
                 episode_data = {
-                    "title": episode.get("title", "Unknown Episode"),
-                    "description": episode.get("episode_notes", ""),
-                    "published_at": episode.get("published_datetime", ""),
-                    "audio_url": episode.get("audio_url", ""),
-                    "publisher_transcript_url": episode.get("publisher_transcript_url", "")
+                  "title": title,
+                  "description": episode.get("episode_notes", ""),
+                  "published_at": episode.get("published_datetime", datetime.now().isoformat()),
+                  "audio_url": episode.get("audio_url", ""),
+                  "publisher_transcript_url": episode.get("publisher_transcript_url", "")
                 }
                 episodes.append(episode_data)
             

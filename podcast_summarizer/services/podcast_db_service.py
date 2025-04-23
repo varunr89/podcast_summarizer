@@ -27,7 +27,8 @@ def update_existing_podcast(db, existing_podcast: Dict[str, Any], podcast_data: 
     podcast_data["id"] = podcast_id
     
     # Check if any fields need updating
-    needs_update = any(existing_podcast.get(key) != value for key, value in podcast_data.items() if key in existing_podcast)
+    # Check if any fields need updating (excluding description and artwork_url)
+    needs_update = False #never true for now
     
     if needs_update:
         db.podcast_manager.upsert(podcast_data)
