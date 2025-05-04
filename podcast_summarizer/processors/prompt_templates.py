@@ -96,74 +96,87 @@ class PromptTemplates:
     
     @staticmethod
     def get_key_points_map_prompt(method: str) -> str:
-        """Get key points map prompt."""
+        """
+        Prompt for extracting actionable, quote‑grounded takeaways from one chunk.
+        (Function name retained for backward compatibility.)
+        """
         return """
         You're analyzing part {chunk_id} of {total_chunks} of a podcast transcript.
-        
-        Extract 2-3 key points from this section of the transcript along with brief explanation for each key point.
-        Focus on important insights, arguments, or conclusions.
-                
+
+        Identify 1‑2 practical takeaways—specific actions, habits, or mindsets—that a listener
+        could apply in their own life based ONLY on this section.
+        • Each takeaway MUST be supported by 1‑2 brief direct quotes from this section.  
+        • Do NOT invent advice; if no actionable takeaway exists, return: "NO PRACTICAL TAKEAWAY".
+
         TRANSCRIPT SECTION:
         {text}
-        
-        KEY POINTS:
-         e.g. "1": "**AI \"Reasoning\" and Its Evolution**: AI models are advancing in their 
-        ability to \"reason\" through tasks using techniques like chain-of-thought prompting, which 
-        involves generating step-by-step explanations to improve accuracy and logical consistency. 
-        However, this process is often misunderstood and oversimplified in mainstream explanations, 
-        requiring a deeper understanding of the underlying technologies and architectures.", 
 
+        PRACTICAL TAKEAWAYS:
+        e.g. "1": "**Schedule reflection time** — Block a 30‑minute slot each week to assess goals. 
+        Quote: "If you don't make space to think, your calendar will fill itself." 
         """
-    
+
     @staticmethod
     def get_key_points_combine_prompt(method: str) -> str:
-        """Get key points combine prompt."""
+        """
+        Prompt for merging chunk‑level takeaways into a final actionable list.
+        (Function name retained for backward compatibility.)
+        """
         return """
-        From these extracted key points, create a consolidated list of 5-7 most important key points from the podcast.
-        Eliminate redundancies and merge similar points.
-        Number each point and **always** provide a brief explanation for each.
-        
-        EXTRACTED POINTS:
+        From these chunk‑level takeaways, create a consolidated list of 3‑5 distinct, 
+        practical takeaways grounded in the podcast. 
+        • Merge duplicates and eliminate redundancies.  
+        • Number each takeaway.  
+        • After each takeaway include at least one supporting quote from the speaker.  
+        • Do NOT fabricate advice or quotes.
+
+        EXTRACTED TAKEAWAYS:
         {text}
-        
-        FINAL KEY POINTS (numbered list):
-         e.g. "1": "**AI \"Reasoning\" and Its Evolution**: AI models are advancing in their 
-        ability to \"reason\" through tasks using techniques like chain-of-thought prompting, which 
-        involves generating step-by-step explanations to improve accuracy and logical consistency. 
-        However, this process is often misunderstood and oversimplified in mainstream explanations, 
-        requiring a deeper understanding of the underlying technologies and architectures."
-        e.g. "2": "**Another Key Point**: Description of another important insight or conclusion from the podcast.
-        e.g. "3": "**Yet Another Key Point**: Further explanation of a significant topic discussed in the podcast.
+
+        FINAL PRACTICAL TAKEAWAYS (numbered list):
+        e.g. "1": "**Schedule reflection time** — Block a 30‑minute slot each week to assess goals. 
+        Quote: "If you don't make space to think, your calendar will fill itself."
+        e.g. "2": "**Embrace small experiments** — Test new ideas on a small scale before committing. 
+        Quote: "Treat every change like a tiny experiment you can learn from."
         """
     
     @staticmethod
     def get_highlights_map_prompt(method: str) -> str:
-        """Get highlights map prompt."""
+        """Prompt for extracting memorable quotes from one chunk."""
         return """
         You're analyzing part {chunk_id} of {total_chunks} of a podcast transcript.
-        
-        Extract 1-2 memorable quotes or insights from this section that are particularly
-        insightful, thought-provoking, or representative of key moments.
-        
+
+        Extract the 1‑2 most memorable DIRECT quotes from this section.
+        • Quotes must be copied verbatim (no paraphrasing or fabrication).  
+        • Return ONLY a numbered list of quotes, e.g.  
+          1. "First quote."  
+          2. "Second quote."
+
+        Do NOT add any other text.
+
         TRANSCRIPT SECTION:
         {text}
-        
-        MEMORABLE QUOTES:
+
+        NUMBERED QUOTES:
         """
-    
+
     @staticmethod
     def get_highlights_combine_prompt(method: str) -> str:
-        """Get highlights combine prompt."""
+        """Prompt for consolidating memorable quotes."""
         return """
-        From these extracted quotes and insights, select the 3-5 most memorable ones
-        that best represent the key insights or moments from the podcast.
-        Prioritize direct quotations when possible.
-        List each quote on a separate line.
-        
+        From the quotes below, select the 5‑10 most memorable DIRECT quotes that best
+        capture the key insights or moments of the podcast.
+        • Preserve exact wording (no paraphrasing or fabrication).  
+        • Return ONLY a numbered list of quotes, one per line, e.g.  
+          1. "Quote one."  
+          2. "Quote two."
+
+        Do NOT add any other text.
+
         EXTRACTED QUOTES:
         {text}
-        
-        FINAL MEMORABLE QUOTES (one per line):
+
+        FINAL NUMBERED QUOTES:
         """
     
     @staticmethod

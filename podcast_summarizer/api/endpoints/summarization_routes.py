@@ -19,6 +19,20 @@ async def summarize_episode(request: EpisodeSummaryRequest):
     
     try:
         db = get_db_instance()
+        # Check for existing summary to avoid unnecessary recomputation/cost
+        existing = db.summary_manager.get(request.episode_id)
+        if existing:
+            logger.info(f"Using cached summary for episode ID: {request.episode_id}")
+            return {
+                "episode_id": existing.get("episode_id"),
+                "summary_id": existing.get("id"),
+                "status": "Summary retrieved",
+                "method": request.method,
+                "summary_preview": (existing.get("summary") or "")[:200] + ("..." if existing.get("summary") and len(existing.get("summary")) > 200 else ""),
+                "key_points_count": len(existing.get("key_points") or []),
+                "highlights_count": len(existing.get("highlights") or [])
+            }
+
         # Fetch transcription directly - no need to query episode details first
         transcription = db.transcription_manager.get(request.episode_id)
         if not transcription:
@@ -37,19 +51,19 @@ async def summarize_episode(request: EpisodeSummaryRequest):
         # Store the summary in the database
         logger.debug(f"Storing summary for episode {request.episode_id}")
         record_id = db.summary_manager.store(
-            request.episode_id, 
-            summary, 
+            request.episode_id,
+            summary,
             request.user_id,
-            key_points.get("points", []), 
-            highlights, 
+            key_points.get("points", []),
+            highlights,
             request.detail_level,
             {}  # Empty metadata as it's not returned by the function
         )
         
         logger.info(f"Summary stored with ID: {record_id}")
         return {
-            "episode_id": request.episode_id, 
-            "summary_id": record_id, 
+            "episode_id": request.episode_id,
+            "summary_id": record_id,
             "status": "Summary stored",
             "method": request.method,
             # Include key summary data in response to save a separate API call
