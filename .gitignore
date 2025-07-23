@@ -33,3 +33,7 @@ ENV/
 *.log
 logs/
 podcast_summarizer/logs/
+# Environment files
+.env
+src/.env
+

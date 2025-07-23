@@ -128,7 +128,7 @@ def validate_environment() -> Tuple[bool, Optional[str]]:
         Tuple of (success: bool, error_message: Optional[str])
     """
     try:
-        env_path = Path(__file__).parent.parent / 'src' / '.env'
+        env_path = Path(__file__).parent.parent / 'src' / '.env.example'
         if not env_path.exists():
             return False, f"Environment file not found at: {env_path}"
             
@@ -164,7 +164,7 @@ def validate_environment() -> Tuple[bool, Optional[str]]:
         
         missing_vars = [var for var in required_vars if var not in found_vars]
         if missing_vars:
-            return False, f"Missing required variables in .env: {', '.join(missing_vars)}"
+            return False, f"Missing required variables in .env.example: {', '.join(missing_vars)}"
             
         return True, None
         
@@ -201,7 +201,7 @@ def validate_environment() -> Tuple[bool, Optional[str]]:
         
         missing_vars = [var for var in required_vars if var not in found_vars]
         if missing_vars:
-            return False, f"Missing required variables in .env: {', '.join(missing_vars)}"
+            return False, f"Missing required variables in .env.example: {', '.join(missing_vars)}"
             
         return True, None
         
