@@ -1,6 +1,7 @@
 """
 Example script demonstrating usage of the Podcast Summarizer API.
 """
+__test__ = False
 import os
 import time
 import argparse
